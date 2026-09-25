@@ -312,6 +312,8 @@ pub async fn send_request(
             .unwrap_or_default(),
         folder_vars: chain.merged_variables(),
         env_values,
+        env_file: env_name.clone(),
+        workspace_root: Some(root.clone()),
         oauth_cache: &ctx.oauth_cache,
         open_browser: &open_browser,
         cookie_jar: Some(&ctx.cookie_jar),

@@ -330,6 +330,8 @@ pub async fn run_folder(
                 .unwrap_or_default(),
             folder_vars: chain.merged_variables(),
             env_values: env_values.clone(),
+            env_file: env.env_file_name.clone(),
+            workspace_root: Some(env.root.clone()),
             iteration_vars: iteration_vars.clone(),
             oauth_cache: &env.oauth_cache,
             open_browser: &*env.open_browser,

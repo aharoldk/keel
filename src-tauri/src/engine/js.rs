@@ -55,6 +55,9 @@ pub struct Host {
     pub folder_vars: BTreeMap<String, String>,
     pub env_name: String,
     pub transient: BTreeMap<String, String>,
+    /// `keel.setEnvVar` writes. Persisted as the active environment's current
+    /// values (`.keel/env-values.yaml`) by the send caller. `None` means delete.
+    pub env_updates: BTreeMap<String, Option<String>>,
     pub req: ReqState,
     pub res: Option<ResState>,
     pub logs: Vec<String>,
@@ -82,6 +85,7 @@ impl Host {
             folder_vars,
             env_name,
             transient,
+            env_updates: BTreeMap::new(),
             req,
             res: None,
             logs: Vec::new(),
@@ -106,6 +110,7 @@ impl Host {
             folder_vars: BTreeMap::new(),
             env_name: String::new(),
             transient: BTreeMap::new(),
+            env_updates: BTreeMap::new(),
             req: ReqState {
                 method: HttpMethod::GET,
                 url: String::new(),
@@ -175,17 +180,41 @@ impl Host {
                 Ok(json!({ "value": self.scope.contains_key(&name) }))
             }
             "getAllVars" => Ok(json!({ "value": self.transient })),
-            "setVar" | "setEnvVar" => {
+            "setVar" => {
                 let name = str_field(payload, "name")?;
                 let value = payload.get("value").cloned().unwrap_or(Value::Null);
                 self.scope.insert(name.clone(), to_storage(&value));
                 self.transient.insert(name, to_storage(&value));
                 Ok(json!({}))
             }
-            "deleteVar" | "deleteEnvVar" => {
+            "setEnvVar" => {
+                let name = str_field(payload, "name")?;
+                if name.trim().is_empty() {
+                    return Err("setEnvVar: variable name is empty".into());
+                }
+                let value = payload.get("value").cloned().unwrap_or(Value::Null);
+                let stored = to_storage(&value);
+                // Empty clears the current value so the committed default wins.
+                let current = if stored.is_empty() { None } else { Some(stored.clone()) };
+                self.scope.insert(name.clone(), stored.clone());
+                self.transient.insert(name.clone(), stored);
+                self.env_updates.insert(name, current);
+                Ok(json!({}))
+            }
+            "deleteVar" => {
                 let name = str_field(payload, "name")?;
                 self.scope.remove(&name);
                 self.transient.remove(&name);
+                Ok(json!({}))
+            }
+            "deleteEnvVar" => {
+                let name = str_field(payload, "name")?;
+                if name.trim().is_empty() {
+                    return Err("deleteEnvVar: variable name is empty".into());
+                }
+                self.scope.remove(&name);
+                self.transient.remove(&name);
+                self.env_updates.insert(name, None);
                 Ok(json!({}))
             }
             "getCollectionVar" => {
@@ -526,6 +555,16 @@ mod tests {
             size: 24,
         });
         Rc::new(RefCell::new(h))
+    }
+
+    #[test]
+    fn set_env_var_records_current_value() {
+        let cell = post_cell();
+        run_str(r#"keel.setEnvVar("FLOW", "flow-1"); keel.deleteEnvVar("old");"#, &cell);
+        let h = cell.borrow();
+        assert_eq!(h.env_updates.get("FLOW").and_then(|v| v.as_deref()), Some("flow-1"));
+        assert_eq!(h.env_updates.get("old").map(|v| v.is_none()), Some(true));
+        assert_eq!(h.transient.get("FLOW").map(String::as_str), Some("flow-1"));
     }
 
     #[test]

@@ -537,6 +537,8 @@ fn cmd_run(args: &[String], cwd: &Path) -> i32 {
                     .unwrap_or_default(),
                 folder_vars: chain.merged_variables(),
                 env_values: env_values.clone(),
+                env_file: env_file.clone(),
+                workspace_root: Some(root.clone()),
                 oauth_cache: &cli_oauth_cache,
                 open_browser: &open_browser,
                 cookie_jar: Some(&cli_cookie_jar),

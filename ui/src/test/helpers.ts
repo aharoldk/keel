@@ -51,6 +51,8 @@ export function resetStore() {
     git: null,
     tabs: [],
     activePath: null,
+    editorTabs: [],
+    activeEditor: null,
     contentPanel: null,
     flowRun: null,
     sidebarPanel: "collections",

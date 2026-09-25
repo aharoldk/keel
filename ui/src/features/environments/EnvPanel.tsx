@@ -9,19 +9,17 @@ import { useKeel } from "@/state/store";
 
 export function EnvPanel() {
   const envs = useKeel((s) => s.envs);
-  const activeEnv = useKeel((s) => s.activeEnv);
   const loadEnvs = useKeel((s) => s.loadEnvs);
   const importPostman = useKeel((s) => s.importPostman);
   const toast = useKeel((s) => s.toast);
 
-  const setContentPanel = useKeel((s) => s.setContentPanel);
+  const openEnvironment = useKeel((s) => s.openEnvironment);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [deleting, setDeleting] = useState<EnvSummary | null>(null);
 
-  const openEditor = (env: EnvSummary) =>
-    setContentPanel({ kind: "environment", fileName: env.fileName });
+  const openEditor = (env: EnvSummary) => openEnvironment(env.fileName);
 
   const createEnv = async () => {
     if (!newName.trim()) return;
@@ -107,12 +105,7 @@ export function EnvPanel() {
               key={env.fileName}
               title={`${env.fileName} — click to edit`}
               onClick={() => openEditor(env)}
-              className={cn(
-                "group h-7 px-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none",
-                activeEnv === env.fileName
-                  ? "bg-accent-soft text-fg-0"
-                  : "text-fg-1 hover:bg-bg-hover",
-              )}
+              className="group h-7 px-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none text-fg-1 hover:bg-bg-hover"
             >
               <FileCode2 size={13} className="shrink-0 text-fg-2" />
               <span className="truncate">{env.name}</span>
@@ -213,9 +206,10 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
     variableCount: 0,
     secretCount: 0,
   };
-  const onClose = () => useKeel.getState().setContentPanel(null);
+  const closeEditor = useKeel((s) => s.closeEditor);
   const loadEnvs = useKeel((s) => s.loadEnvs);
   const toast = useKeel((s) => s.toast);
+  const envValuesRevision = useKeel((s) => s.envValuesRevision);
 
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState(env.name);
@@ -252,7 +246,7 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
       } catch (err) {
         if (!alive) return;
         toast(String(err), "error");
-        onClose();
+        closeEditor(`env:${env.fileName}`);
       } finally {
         if (alive) setLoading(false);
       }
@@ -261,6 +255,20 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
       alive = false;
     };
   }, [env.fileName, env.name]);
+
+  useEffect(() => {
+    if (envValuesRevision === 0) return;
+    let alive = true;
+    api
+      .envValuesRead(env.fileName)
+      .then((currents) => {
+        if (alive) setCurrentValues(currents ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [env.fileName, envValuesRevision]);
 
   const refreshKeychain = async () => {
     try {
@@ -334,7 +342,6 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
       await api.envSave(env.fileName, doc);
       await loadEnvs();
       toast("Environment saved", "success");
-      onClose();
     } catch (err) {
       toast(String(err), "error");
     } finally {
@@ -350,9 +357,6 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
           Environment: {name || env.name}
         </span>
         <div className="flex-1" />
-        <Button variant="ghost" onClick={onClose}>
-          Close
-        </Button>
         <Button variant="primary" disabled={saving || loading} onClick={save}>
           Save
         </Button>
@@ -382,9 +386,6 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-2">
                 Variables
-              </span>
-              <span className="text-[10px] text-fg-2">
-                current value is local (never committed) and wins over the default
               </span>
               <Button
                 variant="ghost"

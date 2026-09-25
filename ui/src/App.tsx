@@ -22,9 +22,18 @@ export default function App() {
   const ready = useKeel((s) => s.ready);
   const workspace = useKeel((s) => s.workspace);
   const activePath = useKeel((s) => s.activePath);
-  const contentPanel = useKeel((s) => s.contentPanel);
+  const editorTabs = useKeel((s) => s.editorTabs);
+  const activeEditor = useKeel((s) => s.activeEditor);
   const consoleOpen = useKeel((s) => s.consoleOpen);
   const aiOpen = useKeel((s) => s.aiOpen);
+  const activeTab = editorTabs.find((t) =>
+    t.kind === "request"
+      ? t.path === activeEditor
+      : t.kind === "environment"
+        ? `env:${t.fileName}` === activeEditor
+        : activeEditor === "flow",
+  );
+  const openEnvFile = activeTab?.kind === "environment" ? activeTab.fileName : null;
 
   useEffect(() => {
     useKeel.getState().init();
@@ -61,10 +70,10 @@ export default function App() {
         <Sidebar />
         <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-bg-1 border-l border-line-0">
           <RequestTabsBar />
-          {contentPanel?.kind === "flow" ? (
+          {activeTab?.kind === "flow" ? (
             <FlowRun />
-          ) : contentPanel?.kind === "environment" ? (
-            <EnvironmentEditor fileName={contentPanel.fileName} />
+          ) : openEnvFile ? (
+            <EnvironmentEditor fileName={openEnvFile} />
           ) : activePath ? (
             <RequestEditor />
           ) : (

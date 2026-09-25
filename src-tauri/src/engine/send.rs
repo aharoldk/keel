@@ -41,6 +41,11 @@ pub struct SendInput<'a> {
     /// Current (local) variable values for the active environment; they win
     /// over the committed default values.
     pub env_values: BTreeMap<String, String>,
+    /// Environment file name (`local.yaml`). Required to persist
+    /// `keel.setEnvVar` into that environment's current values.
+    pub env_file: Option<String>,
+    /// Workspace root holding `.keel/env-values.yaml`.
+    pub workspace_root: Option<std::path::PathBuf>,
     /// In-memory OAuth2 token cache (shared across sends).
     pub oauth_cache: &'a Oauth2Cache,
     /// Opens a URL in the system browser (authorization-code flow).
@@ -183,6 +188,44 @@ fn plain_snapshot(scopes: &ScopeStack) -> BTreeMap<String, String> {
     out
 }
 
+/// Writes `keel.setEnvVar` / `keel.deleteEnvVar` into the active environment's
+/// current values. Secret names are skipped — those stay in the keychain.
+/// An empty update deletes the current value so the committed default is used.
+fn persist_env_updates(
+    root: Option<&std::path::Path>,
+    file_name: Option<&str>,
+    env: Option<&EnvDoc>,
+    updates: &BTreeMap<String, Option<String>>,
+    env_values: &mut BTreeMap<String, String>,
+) {
+    if updates.is_empty() {
+        return;
+    }
+    let secrets = env.and_then(|e| e.secrets.as_ref());
+    for (name, value) in updates {
+        if secrets.is_some_and(|s| s.contains_key(name)) {
+            continue;
+        }
+        match value {
+            Some(v) => {
+                env_values.insert(name.clone(), v.clone());
+            }
+            None => {
+                env_values.remove(name);
+            }
+        }
+        let Some(root) = root else { continue };
+        let Some(file_name) = file_name else { continue };
+        let result = match value {
+            Some(v) => crate::workspace::env_value_set(root, file_name, name, v),
+            None => crate::workspace::env_value_delete(root, file_name, name),
+        };
+        if let Err(e) = result {
+            eprintln!("keel: failed to persist env var `{name}`: {e}");
+        }
+    }
+}
+
 fn script_sources(doc: &RequestDoc, which: WhichScript) -> Vec<String> {
     let Some(scripts) = &doc.scripts else {
         return Vec::new();
@@ -226,7 +269,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
     let mut timeline: Vec<TimelineEventDto> = Vec::new();
     let mut auth_used: Option<String> = None;
 
-    let env_values = &input.env_values;
+    let mut env_values = input.env_values.clone();
     let iteration_vars = input.iteration_vars.clone();
     let mut scopes = make_scopes(
         workspace_doc,
@@ -236,7 +279,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
         &doc,
         &iteration_vars,
         input.transient,
-        env_values,
+        &env_values,
     );
 
     let resolve_template = |scopes: &ScopeStack, template: &str, stats: &mut ResolveStats| -> String {
@@ -298,6 +341,13 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
                 // (including any vars set before the failing script) so the
                 // session state survives a broken pre-request script.
                 *input.transient = h.transient.clone();
+                persist_env_updates(
+                    input.workspace_root.as_deref(),
+                    input.env_file.as_deref(),
+                    env,
+                    &h.env_updates,
+                    &mut env_values,
+                );
                 return finish_error(
                     &doc,
                     &template_url,
@@ -314,6 +364,13 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
         {
             let h = pre_cell.borrow();
             *input.transient = h.transient.clone();
+            persist_env_updates(
+                input.workspace_root.as_deref(),
+                input.env_file.as_deref(),
+                env,
+                &h.env_updates,
+                &mut env_values,
+            );
             logs = h.logs.clone();
             js_tests.extend(h.tests.iter().cloned());
             doc.request.method = h.req.method;
@@ -330,7 +387,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
                 &doc,
                 &iteration_vars,
                 input.transient,
-                env_values,
+                &env_values,
             );
             let final_url = resolve_template(&scopes, &script_url, &mut stats);
             let final_headers: Vec<crate::model::KV> = script_headers
@@ -591,6 +648,13 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
         }
         let h = post_cell.borrow();
         *input.transient = h.transient.clone();
+        persist_env_updates(
+            input.workspace_root.as_deref(),
+            input.env_file.as_deref(),
+            env,
+            &h.env_updates,
+            &mut env_values,
+        );
         logs.extend(h.logs.iter().cloned());
         js_tests.extend(h.tests.iter().cloned());
         if let Some(body) = &h.body_override {
@@ -1039,6 +1103,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_env_var_persists_current_value() {
+        let dir = tempfile::TempDir::new().expect("temp");
+        let env = env_doc(&[("FLOW", "")], &[]);
+        let doc = doc_with_pre_script(r#"keel.setEnvVar("FLOW", "flow-1");"#);
+        let oauth_cache = Oauth2Cache::default();
+        let noop_browser = |_: &str| -> Result<(), String> { Ok(()) };
+        let mut transient = BTreeMap::new();
+
+        let out = send(SendInput {
+            doc: &doc,
+            env_label: Some("local".into()),
+            env: Some(&env),
+            collection: None,
+            workspace_doc: None,
+            transient: &mut transient,
+            http: HttpOptions::default(),
+            secret_source: &FakeSecrets,
+            request_path: None,
+            collection_vars: Default::default(),
+            folder_vars: Default::default(),
+            env_values: Default::default(),
+            env_file: Some("local.yaml".into()),
+            workspace_root: Some(dir.path().to_path_buf()),
+            oauth_cache: &oauth_cache,
+            open_browser: &noop_browser,
+            cookie_jar: None,
+            send_cookies: false,
+            store_cookies: false,
+            iteration_vars: Default::default(),
+        })
+        .await;
+
+        let _ = out;
+        let stored = crate::workspace::env_values_read(dir.path(), "local.yaml");
+        assert_eq!(stored.get("FLOW").map(String::as_str), Some("flow-1"));
+    }
+
+    #[tokio::test]
     async fn pre_script_error_preserves_transient() {
         let doc = doc_with_pre_script(r#"set("kept", "yes"); throw new Error("boom")"#);
         let oauth_cache = Oauth2Cache::default();
@@ -1058,6 +1160,8 @@ mod tests {
             collection_vars: Default::default(),
             folder_vars: Default::default(),
             env_values: Default::default(),
+            env_file: None,
+            workspace_root: None,
             oauth_cache: &oauth_cache,
             open_browser: &noop_browser,
             cookie_jar: None,
@@ -1095,6 +1199,8 @@ mod tests {
             collection_vars: Default::default(),
             folder_vars: Default::default(),
             env_values: Default::default(),
+            env_file: None,
+            workspace_root: None,
             oauth_cache: &oauth_cache,
             open_browser: &noop_browser,
             cookie_jar: None,

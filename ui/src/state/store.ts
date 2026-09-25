@@ -19,9 +19,24 @@ import type {
 export type SidebarPanel = "collections" | "environments" | "flow" | "history" | "git";
 
 /** Panel shown in the main content area instead of the request editor. */
-export type ContentPanel =
-  | { kind: "flow" }
-  | { kind: "environment"; fileName: string };
+export type ContentPanel = { kind: "flow" };
+
+export type EditorTab =
+  | { kind: "request"; path: string }
+  | { kind: "environment"; fileName: string }
+  | { kind: "flow"; fileName: string | null };
+
+export function envTabKey(fileName: string): string {
+  return `env:${fileName}`;
+}
+
+export const FLOW_TAB_KEY = "flow";
+
+export function tabKey(tab: EditorTab): string {
+  if (tab.kind === "request") return tab.path;
+  if (tab.kind === "environment") return envTabKey(tab.fileName);
+  return FLOW_TAB_KEY;
+}
 
 export interface FlowRunStep {
   id: string;
@@ -71,6 +86,8 @@ interface KeelState {
   settings: AppSettings;
   tabs: Tab[];
   activePath: string | null;
+  editorTabs: EditorTab[];
+  activeEditor: string | null;
   sidebarPanel: SidebarPanel;
   sidebarOpen: boolean;
   contentPanel: ContentPanel | null;
@@ -89,6 +106,8 @@ interface KeelState {
   runnerSummary: RunnerSummary | null;
   /** True while run_folder is in flight and the run id is not known yet. */
   runnerStarting: boolean;
+  /** Bumped after a send so an open environment editor reloads current values. */
+  envValuesRevision: number;
 
   init: () => Promise<void>;
   setSidebarPanel: (p: SidebarPanel) => void;
@@ -114,8 +133,12 @@ interface KeelState {
   selectEnv: (fileName: string | null) => void;
 
   openRequest: (path: string) => Promise<void>;
+  openEnvironment: (fileName: string) => void;
+  openFlow: () => void;
   closeTab: (path: string) => void;
+  closeEditor: (key: string) => void;
   setActiveTab: (path: string) => void;
+  setActiveEditor: (key: string) => void;
   moveTab: (from: number, to: number) => void;
   openCodegen: (path: string) => void;
   closeCodegen: () => void;
@@ -201,6 +224,8 @@ export const useKeel = create<KeelState>((set, get) => ({
   },
   tabs: [],
   activePath: null,
+  editorTabs: [],
+  activeEditor: null,
   sidebarPanel: "collections",
   sidebarOpen: true,
   contentPanel: null,
@@ -221,6 +246,7 @@ export const useKeel = create<KeelState>((set, get) => ({
   runnerFolder: null,
   runnerItems: [],
   runnerSummary: null,
+  envValuesRevision: 0,
   runnerStarting: false,
 
   async init() {
@@ -302,7 +328,7 @@ export const useKeel = create<KeelState>((set, get) => ({
 
   async openWorkspace(path) {
     const ws = await api.workspaceOpen(path);
-    set({ workspace: ws, tabs: [], activePath: null, contentPanel: null });
+    set({ workspace: ws, tabs: [], activePath: null, editorTabs: [], activeEditor: null, contentPanel: null });
     const recent = [path, ...(get().settings.recentWorkspaces ?? []).filter((p) => p !== path)].slice(0, 10);
     await get().saveSettings({ lastWorkspace: path, recentWorkspaces: recent });
     await get().refreshAll();
@@ -316,7 +342,7 @@ export const useKeel = create<KeelState>((set, get) => ({
   async createWorkspace(path, name) {
     try {
       const ws = await api.workspaceInit(path, name);
-      set({ workspace: ws, tabs: [], activePath: null, contentPanel: null });
+      set({ workspace: ws, tabs: [], activePath: null, editorTabs: [], activeEditor: null, contentPanel: null });
       const recent = [path, ...(get().settings.recentWorkspaces ?? []).filter((p) => p !== path)].slice(0, 10);
       await get().saveSettings({ lastWorkspace: path, recentWorkspaces: recent });
       await get().refreshAll();
@@ -344,7 +370,7 @@ export const useKeel = create<KeelState>((set, get) => ({
     try {
       await api.workspaceClose();
     } finally {
-      set({ workspace: null, tree: [], envs: [], activeEnv: null, git: null, tabs: [], activePath: null, contentPanel: null });
+      set({ workspace: null, tree: [], envs: [], activeEnv: null, git: null, tabs: [], activePath: null, editorTabs: [], activeEditor: null, contentPanel: null });
     }
   },
 
@@ -421,8 +447,15 @@ export const useKeel = create<KeelState>((set, get) => ({
 
   async openRequest(path) {
     const existing = get().tabs.find((t) => t.path === path);
+    const key = path;
+    const focus = (s: KeelState): Partial<KeelState> => {
+      const editorTabs = s.editorTabs.some((t) => tabKey(t) === key)
+        ? s.editorTabs
+        : [...s.editorTabs, { kind: "request" as const, path }];
+      return { activePath: path, activeEditor: key, editorTabs, contentPanel: null };
+    };
     if (existing) {
-      set({ activePath: path, contentPanel: null });
+      set(focus);
       return;
     }
     try {
@@ -430,11 +463,10 @@ export const useKeel = create<KeelState>((set, get) => ({
       set((s) => {
         // re-check inside the updater: a concurrent openRequest for the same
         // path may have added the tab while requestRead was in flight
-        if (s.tabs.some((t) => t.path === path)) return { activePath: path, contentPanel: null };
+        if (s.tabs.some((t) => t.path === path)) return focus(s);
         return {
           tabs: [...s.tabs, { path, doc, saved: doc, loading: false, result: null, error: null }],
-          activePath: path,
-          contentPanel: null,
+          ...focus(s),
         };
       });
     } catch (e) {
@@ -442,29 +474,74 @@ export const useKeel = create<KeelState>((set, get) => ({
     }
   },
 
-  closeTab(path) {
+  openEnvironment(fileName) {
+    const key = envTabKey(fileName);
     set((s) => {
-      const idx = s.tabs.findIndex((t) => t.path === path);
-      const tabs = s.tabs.filter((t) => t.path !== path);
-      const activePath =
-        s.activePath === path
-          ? (tabs[Math.min(idx, tabs.length - 1)]?.path ?? null)
-          : s.activePath;
-      return { tabs, activePath };
+      const editorTabs = s.editorTabs.some((t) => tabKey(t) === key)
+        ? s.editorTabs
+        : [...s.editorTabs, { kind: "environment" as const, fileName }];
+      return { editorTabs, activeEditor: key, contentPanel: null };
+    });
+  },
+
+  openFlow() {
+    set((s) => {
+      const editorTabs = s.editorTabs.some((t) => t.kind === "flow")
+        ? s.editorTabs
+        : [...s.editorTabs, { kind: "flow" as const, fileName: null }];
+      return { editorTabs, activeEditor: FLOW_TAB_KEY, contentPanel: null };
+    });
+  },
+
+  closeTab(path) {
+    get().closeEditor(path);
+  },
+
+  closeEditor(key) {
+    set((s) => {
+      const idx = s.editorTabs.findIndex((t) => tabKey(t) === key);
+      const editorTabs = s.editorTabs.filter((t) => tabKey(t) !== key);
+      const tabs = s.tabs.filter((t) => t.path !== key);
+      let activeEditor = s.activeEditor;
+      if (activeEditor === key) {
+        const neighbor = editorTabs[Math.min(idx, editorTabs.length - 1)];
+        activeEditor = neighbor ? tabKey(neighbor) : null;
+      }
+      const active = editorTabs.find((t) => tabKey(t) === activeEditor);
+      const activePath = active?.kind === "request" ? active.path : null;
+      return { editorTabs, tabs, activeEditor, activePath };
     });
   },
 
   setActiveTab(path) {
-    set({ activePath: path, contentPanel: null });
+    set({ activePath: path, activeEditor: path, contentPanel: null });
+  },
+
+  setActiveEditor(key) {
+    set((s) => {
+      const tab = s.editorTabs.find((t) => tabKey(t) === key);
+      if (!tab) return {};
+      return {
+        activeEditor: key,
+        contentPanel: null,
+        activePath: tab.kind === "request" ? tab.path : s.activePath,
+      };
+    });
   },
 
   moveTab(from, to) {
     set((s) => {
-      const tabs = [...s.tabs];
-      if (from < 0 || from >= tabs.length || to < 0 || to >= tabs.length) return {};
-      const [moved] = tabs.splice(from, 1);
-      tabs.splice(to, 0, moved);
-      return { tabs };
+      const editorTabs = [...s.editorTabs];
+      if (from < 0 || from >= editorTabs.length || to < 0 || to >= editorTabs.length) return {};
+      const [moved] = editorTabs.splice(from, 1);
+      editorTabs.splice(to, 0, moved);
+      const order = new Map(
+        editorTabs.filter((t) => t.kind === "request").map((t, i) => [t.path, i]),
+      );
+      const tabs = [...s.tabs].sort(
+        (a, b) => (order.get(a.path) ?? 0) - (order.get(b.path) ?? 0),
+      );
+      return { editorTabs, tabs };
     });
   },
 
@@ -551,6 +628,7 @@ export const useKeel = create<KeelState>((set, get) => ({
         tabs: st.tabs.map((t) =>
           t.path === path ? { ...t, loading: false, result, error: null } : t,
         ),
+        envValuesRevision: st.envValuesRevision + 1,
       }));
       const failed = result.error ?? result.testResults.find((r) => !r.passed);
       if (result.error) {
@@ -578,7 +656,11 @@ export const useKeel = create<KeelState>((set, get) => ({
       const newPath = await api.requestRename(path, newName);
       set((s) => ({
         tabs: s.tabs.map((t) => (t.path === path ? { ...t, path: newPath } : t)),
+        editorTabs: s.editorTabs.map((t) =>
+          t.kind === "request" && t.path === path ? { ...t, path: newPath } : t,
+        ),
         activePath: s.activePath === path ? newPath : s.activePath,
+        activeEditor: s.activeEditor === path ? newPath : s.activeEditor,
       }));
       await Promise.all([get().refreshTree(), get().refreshGit()]);
       return newPath;
@@ -616,7 +698,12 @@ export const useKeel = create<KeelState>((set, get) => ({
           p === path || p.startsWith(`${path}/`) ? `${newPath}${p.slice(path.length)}` : p;
         set((s) => ({
           tabs: s.tabs.map((t) => (remap(t.path) === t.path ? t : { ...t, path: remap(t.path) })),
+          editorTabs: s.editorTabs.map((t) =>
+            t.kind === "request" && remap(t.path) !== t.path ? { ...t, path: remap(t.path) } : t,
+          ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
+          activeEditor:
+            s.activeEditor && !s.activeEditor.startsWith("env:") ? remap(s.activeEditor) : s.activeEditor,
         }));
         await Promise.all([get().refreshTree(), get().refreshGit()]);
       }
@@ -635,7 +722,12 @@ export const useKeel = create<KeelState>((set, get) => ({
           p === path || p.startsWith(`${path}/`) ? `${newPath}${p.slice(path.length)}` : p;
         set((s) => ({
           tabs: s.tabs.map((t) => (remap(t.path) === t.path ? t : { ...t, path: remap(t.path) })),
+          editorTabs: s.editorTabs.map((t) =>
+            t.kind === "request" && remap(t.path) !== t.path ? { ...t, path: remap(t.path) } : t,
+          ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
+          activeEditor:
+            s.activeEditor && !s.activeEditor.startsWith("env:") ? remap(s.activeEditor) : s.activeEditor,
         }));
       }
       await Promise.all([get().refreshTree(), get().refreshGit()]);

@@ -1,14 +1,60 @@
 import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
-import { tabIsDirty, useKeel } from "@/state/store";
+import { Globe2, Plus, Workflow, X } from "lucide-react";
+import { tabIsDirty, tabKey, useKeel, type EditorTab, type Tab } from "@/state/store";
 import { Button, IconButton, Modal, Spinner, TextInput } from "@/components/ui";
 import { cn, methodVar } from "@/utils";
 
+function TabLabel({ editor, request }: { editor: EditorTab; request?: Tab }) {
+  const envs = useKeel((s) => s.envs);
+  const flowName = useKeel((s) => s.flowRun?.name);
+  if (editor.kind === "flow") {
+    return (
+      <>
+        <Workflow size={12} className="shrink-0 text-fg-2" />
+        <span className="truncate max-w-40">{flowName || "Flow"}</span>
+      </>
+    );
+  }
+  if (editor.kind === "environment") {
+    const name = envs.find((e) => e.fileName === editor.fileName)?.name;
+    return (
+      <>
+        <Globe2 size={12} className="shrink-0 text-fg-2" />
+        <span className="truncate max-w-40">{name || editor.fileName.replace(/\.ya?ml$/, "")}</span>
+      </>
+    );
+  }
+  if (!request) return <span className="truncate max-w-40">Untitled</span>;
+  return (
+    <>
+      <span
+        className="font-mono text-[9px] font-bold"
+        style={{ color: methodVar(request.doc.request.method) }}
+      >
+        {request.doc.request.method}
+      </span>
+      <span className="truncate max-w-40">{request.doc.name || "Untitled"}</span>
+      {request.loading ? (
+        <Spinner size={10} />
+      ) : (
+        tabIsDirty(request) && <span className="h-1.5 w-1.5 rounded-full bg-warn shrink-0" />
+      )}
+    </>
+  );
+}
+
 export default function RequestTabsBar() {
   const tabs = useKeel((s) => s.tabs);
+  const storedEditorTabs = useKeel((s) => s.editorTabs);
+  const storedActiveEditor = useKeel((s) => s.activeEditor);
   const activePath = useKeel((s) => s.activePath);
-  const setActiveTab = useKeel((s) => s.setActiveTab);
-  const closeTab = useKeel((s) => s.closeTab);
+  const editorTabs =
+    storedEditorTabs.length > 0
+      ? storedEditorTabs
+      : tabs.map((t) => ({ kind: "request" as const, path: t.path }));
+  const activeEditor = storedActiveEditor ?? activePath;
+  const setActiveEditor = useKeel((s) => s.setActiveEditor);
+  const closeEditor = useKeel((s) => s.closeEditor);
   const saveTab = useKeel((s) => s.saveTab);
   const moveTab = useKeel((s) => s.moveTab);
   const createRequest = useKeel((s) => s.createRequest);
@@ -33,16 +79,17 @@ export default function RequestTabsBar() {
     const onClose = (e: Event) => {
       const path = (e as CustomEvent<string>).detail;
       if (!path) return;
-      const { tabs: open, closeTab: close } = useKeel.getState();
+      const { tabs: open, closeEditor: close } = useKeel.getState();
       const tab = open.find((t) => t.path === path);
       if (tab && tabIsDirty(tab)) setPendingClose(path);
       else close(path);
     };
     const onCloseAll = () => {
-      const { tabs: open, closeTab: close } = useKeel.getState();
-      const dirty = open.filter(tabIsDirty).map((t) => t.path);
+      const { editorTabs: open, tabs: docs, closeEditor: close } = useKeel.getState();
+      const dirty = docs.filter(tabIsDirty).map((t) => t.path);
       for (const tab of open) {
-        if (!tabIsDirty(tab)) close(tab.path);
+        const key = tabKey(tab);
+        if (!dirty.includes(key)) close(key);
       }
       if (dirty.length > 0) {
         setPendingClose(dirty[0]);
@@ -57,10 +104,10 @@ export default function RequestTabsBar() {
     };
   }, []);
 
-  const requestClose = (path: string) => {
-    const tab = useKeel.getState().tabs.find((t) => t.path === path);
-    if (tab && tabIsDirty(tab)) setPendingClose(path);
-    else closeTab(path);
+  const requestClose = (key: string) => {
+    const tab = useKeel.getState().tabs.find((t) => t.path === key);
+    if (tab && tabIsDirty(tab)) setPendingClose(key);
+    else closeEditor(key);
   };
 
   const pendingTab = pendingClose
@@ -75,7 +122,7 @@ export default function RequestTabsBar() {
 
   const confirmDiscard = () => {
     const path = pendingClose;
-    if (path) closeTab(path);
+    if (path) closeEditor(path);
     advanceQueue();
   };
 
@@ -86,22 +133,24 @@ export default function RequestTabsBar() {
     const ok = await saveTab(path);
     setSaving(false);
     if (!ok) return;
-    closeTab(path);
+    closeEditor(path);
     advanceQueue();
   };
 
   return (
     <div className="h-9 border-b border-line-0 bg-bg-1 flex items-stretch overflow-x-auto">
-      {tabs.map((t, i) => {
-        const active = t.path === activePath;
+      {editorTabs.map((editor, i) => {
+        const key = tabKey(editor);
+        const active = key === activeEditor;
+        const request = editor.kind === "request" ? tabs.find((t) => t.path === editor.path) : undefined;
         return (
           <div
-            key={t.path}
-            onClick={() => setActiveTab(t.path)}
+            key={key}
+            onClick={() => setActiveEditor(key)}
             onAuxClick={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
-                requestClose(t.path);
+                requestClose(key);
               }
             }}
             onMouseDown={(e) => {
@@ -111,7 +160,7 @@ export default function RequestTabsBar() {
             onDragStart={(e) => {
               setDragIdx(i);
               e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("text/plain", String(i));
+              e.dataTransfer.setData("text/plain", key);
             }}
             onDragOver={(e) => {
               if (dragIdx == null) return;
@@ -143,28 +192,15 @@ export default function RequestTabsBar() {
                 "border-l-2 border-l-accent",
               dragIdx === i && "opacity-60",
             )}
-            title={t.path}
+            title={key}
           >
-            <span
-              className="font-mono text-[9px] font-bold"
-              style={{ color: methodVar(t.doc.request.method) }}
-            >
-              {t.doc.request.method}
-            </span>
-            <span className="truncate max-w-40">{t.doc.name || "Untitled"}</span>
-            {t.loading ? (
-              <Spinner size={10} />
-            ) : (
-              tabIsDirty(t) && (
-                <span className="h-1.5 w-1.5 rounded-full bg-warn shrink-0" />
-              )
-            )}
+            <TabLabel editor={editor} request={request} />
             <button
               type="button"
               title="Close tab"
               onClick={(e) => {
                 e.stopPropagation();
-                requestClose(t.path);
+                requestClose(key);
               }}
               className="h-4 w-4 inline-flex items-center justify-center rounded-sm text-fg-2 hover:text-danger transition-colors shrink-0"
             >

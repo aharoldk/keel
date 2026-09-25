@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Globe, Search, Settings, Sparkles } from "lucide-react";
+import { ChevronDown, Globe, Search, Settings, Sparkles } from "lucide-react";
 import { comboFor, formatCombo } from "@/shortcuts";
 import { cn } from "@/utils";
 import { useKeel } from "@/state/store";
@@ -97,38 +97,28 @@ export function Toolbar() {
           <div className="absolute right-0 top-full mt-1 z-40 w-72 rounded-md border border-line-0 bg-bg-1 shadow-xl py-1">
             <button
               type="button"
-              className={cn(itemCls, !active ? "text-fg-0" : "text-fg-1")}
+              className={cn(itemCls, "text-fg-1")}
               onClick={() => pickEnv(null)}
             >
               <Globe size={13} className="shrink-0 text-fg-2" />
               <span className="flex-1 truncate">No environment</span>
-              {!active && <Check size={13} className="shrink-0 text-accent" />}
             </button>
             {envs.length > 0 && <div className="mx-2.5 my-1 border-t border-line-0" />}
-            {envs.map((env) => {
-              const selected = env.fileName === activeEnv;
-              return (
-                <button
-                  key={env.fileName}
-                  type="button"
-                  title={env.fileName}
-                  className={cn(itemCls, selected ? "text-fg-0" : "text-fg-1")}
-                  onClick={() => pickEnv(env.fileName)}
-                >
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      selected ? "bg-accent" : "bg-transparent",
-                    )}
-                  />
-                  <span className="truncate">{env.name}</span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-2">
-                    {env.variableCount} vars · {env.secretCount} secrets
-                  </span>
-                  {selected && <Check size={13} className="shrink-0 text-accent" />}
-                </button>
-              );
-            })}
+            {envs.map((env) => (
+              <button
+                key={env.fileName}
+                type="button"
+                title={env.fileName}
+                className={cn(itemCls, "text-fg-1")}
+                onClick={() => pickEnv(env.fileName)}
+              >
+                <Globe size={13} className="shrink-0 text-fg-2" />
+                <span className="truncate">{env.name}</span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-2">
+                  {env.variableCount} vars · {env.secretCount} secrets
+                </span>
+              </button>
+            ))}
             <div className="mx-2.5 my-1 border-t border-line-0" />
             <button
               type="button"

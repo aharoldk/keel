@@ -27,18 +27,18 @@ describe("EnvPanel", () => {
     expect(screen.getByText("3 vars · 2 secrets")).toBeTruthy();
     fireEvent.click(screen.getByText("local"));
     expect(useKeel.getState().activeEnv).toBe("other.yaml");
-    expect(useKeel.getState().contentPanel).toEqual({
-      kind: "environment",
-      fileName: "local.yaml",
-    });
+    expect(useKeel.getState().activeEditor).toBe("env:local.yaml");
+    expect(useKeel.getState().editorTabs).toEqual([
+      { kind: "environment", fileName: "local.yaml" },
+    ]);
   });
 
-  it("active env row is highlighted", () => {
+  it("opening an env does not highlight the sidebar row", () => {
     useKeel.setState({ activeEnv: "local.yaml" });
     const { container } = render(<EnvPanel />);
-    const active = container.querySelector(".bg-accent-soft");
-    expect(active).toBeTruthy();
-    expect(active?.textContent).toContain("local");
+    expect(container.querySelector(".bg-accent-soft")).toBeNull();
+    fireEvent.click(screen.getByText("local"));
+    expect(container.querySelector(".bg-accent-soft")).toBeNull();
   });
 
   it("opens the editor in the content area, loads doc + keychain state, and saves", async () => {
@@ -59,10 +59,7 @@ describe("EnvPanel", () => {
 
     render(<EnvPanel />);
     fireEvent.click(screen.getByTitle("Edit"));
-    expect(useKeel.getState().contentPanel).toEqual({
-      kind: "environment",
-      fileName: "local.yaml",
-    });
+    expect(useKeel.getState().activeEditor).toBe("env:local.yaml");
     render(<EnvironmentEditor fileName="local.yaml" />);
 
     await screen.findByDisplayValue("Dev box");

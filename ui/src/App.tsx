@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useKeel } from "@/state/store";
+import { tabKey, useKeel } from "@/state/store";
 import { handleGlobalKeydown } from "@/commands";
 import { ToastHost } from "@/components/ui";
 import { Toolbar } from "@/features/shell/Toolbar";
@@ -26,13 +26,7 @@ export default function App() {
   const activeEditor = useKeel((s) => s.activeEditor);
   const consoleOpen = useKeel((s) => s.consoleOpen);
   const aiOpen = useKeel((s) => s.aiOpen);
-  const activeTab = editorTabs.find((t) =>
-    t.kind === "request"
-      ? t.path === activeEditor
-      : t.kind === "environment"
-        ? `env:${t.fileName}` === activeEditor
-        : activeEditor === "flow",
-  );
+  const activeTab = editorTabs.find((t) => tabKey(t) === activeEditor);
   const openEnvFile = activeTab?.kind === "environment" ? activeTab.fileName : null;
 
   useEffect(() => {

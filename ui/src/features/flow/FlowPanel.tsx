@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ChevronDown, ChevronRight, Play, Plus, Save, Trash2, Upload, Workflow, X } from "lucide-react";
+import { ArrowDown, Play, Plus, Save, Trash2, Upload, Workflow, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "@/api/client";
 import { flowStepPath, type FlowDoc, type HttpMethod, type SendResult, type TreeNode } from "@/api/types";
+import { SplitPane } from "@/components/SplitPane";
 import { Button, EmptyState, IconButton, Select, TextInput } from "@/components/ui";
+import ResponseViewer from "@/features/response/ResponseViewer";
 import { cn, formatMs, methodVar, statusClass } from "@/utils";
 import { useKeel } from "@/state/store";
 
@@ -39,28 +41,6 @@ function requestOptions(tree: TreeNode[]) {
   };
   walk(tree, "");
   return out;
-}
-
-function StepBody({ result }: { result: StepResult }) {
-  if (result.status === "running") {
-    return <div className="px-2 py-1.5 text-[11px] text-fg-2">Sending…</div>;
-  }
-  if (result.error && !result.result) {
-    return <div className="px-2 py-1.5 text-[11px] text-danger break-words">{result.error}</div>;
-  }
-  const r = result.result;
-  if (!r) return null;
-  return (
-    <div className="px-2 py-1.5 flex flex-col gap-1.5 text-[11px]">
-      {r.error && <div className="text-danger break-words">{r.error}</div>}
-      {r.scriptError && <div className="text-warn break-words">{r.scriptError}</div>}
-      {r.bodyText && (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-fg-1 bg-bg-0 rounded p-1.5">
-          {r.bodyText}
-        </pre>
-      )}
-    </div>
-  );
 }
 
 function lookup(requests: ReturnType<typeof requestOptions>, step: import("@/api/types").FlowStep): Step {
@@ -320,27 +300,6 @@ export function FlowPanel() {
                       {step.method}
                     </span>
                     <span className="flex-1 truncate text-xs text-fg-0">{step.name}</span>
-                    <button
-                      type="button"
-                      title={
-                        step.stopOnFailure
-                          ? "Stop the flow if this step fails"
-                          : "Continue the flow if this step fails"
-                      }
-                      className={cn(
-                        "shrink-0 rounded px-1 text-[10px]",
-                        step.stopOnFailure ? "text-danger" : "text-fg-2",
-                      )}
-                      onClick={() =>
-                        setSteps((s) =>
-                          s.map((x) =>
-                            x.id === step.id ? { ...x, stopOnFailure: !x.stopOnFailure } : x,
-                          ),
-                        )
-                      }
-                    >
-                      {step.stopOnFailure ? "stop" : "continue"}
-                    </button>
                     <IconButton
                       title="Remove"
                       className="h-5 w-5"
@@ -363,7 +322,16 @@ export function FlowRun() {
   const run = useKeel((s) => s.flowRun);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!run) return;
+    const last = [...run.steps].reverse().find((s) => run.results[s.id]);
+    if (last) setOpenId(last.id);
+  }, [run]);
+
   if (!run) return null;
+
+  const selected = run.steps.find((s) => s.id === openId);
+  const selectedResult = selected ? run.results[selected.id] : undefined;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
@@ -372,63 +340,68 @@ export function FlowRun() {
         <span className="flex-1 truncate normal-case tracking-normal text-fg-0">{run.name}</span>
         {run.running && <span className="normal-case tracking-normal text-fg-2">Running…</span>}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto max-w-3xl w-full py-2">
-        {run.steps.map((step, i) => {
-          const res = run.results[step.id];
-          const open = openId === step.id && res != null;
-          return (
-            <div key={step.id}>
-              {i > 0 && (
-                <div className="flex justify-center text-fg-2">
-                  <ArrowDown size={12} />
-                </div>
-              )}
-              <div className="mx-3 rounded border border-line-0 bg-bg-1">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1.5 h-8 px-2 text-left"
-                  disabled={!res}
-                  onClick={() => setOpenId(open ? null : step.id)}
-                >
-                  {res ? (
-                    open ? (
-                      <ChevronDown size={12} className="shrink-0 text-fg-2" />
-                    ) : (
-                      <ChevronRight size={12} className="shrink-0 text-fg-2" />
-                    )
-                  ) : (
-                    <span className="w-3 shrink-0 text-center font-mono text-[10px] text-fg-2">{i + 1}</span>
+      <SplitPane
+        className="flex-1 min-h-0"
+        direction="horizontal"
+        initial={360}
+        min={220}
+        max={720}
+        top={
+          <div className="h-full overflow-y-auto py-3">
+            {run.steps.map((step, i) => {
+              const res = run.results[step.id];
+              const open = openId === step.id;
+              return (
+                <div key={step.id}>
+                  {i > 0 && (
+                    <div className="flex justify-center text-fg-2">
+                      <ArrowDown size={12} />
+                    </div>
                   )}
-                  <span
-                    className="w-10 shrink-0 font-mono text-[10px] font-bold"
-                    style={{ color: methodVar(step.method) }}
+                  <button
+                    type="button"
+                    disabled={!res}
+                    onClick={() => setOpenId(step.id)}
+                    className={cn(
+                      "mx-3 flex w-[calc(100%-1.5rem)] items-center gap-2 h-9 px-2.5 text-left rounded border",
+                      open ? "border-accent bg-accent-soft" : "border-line-0 bg-bg-1",
+                    )}
                   >
-                    {step.method}
-                  </span>
-                  <span className="flex-1 truncate text-xs text-fg-0">{step.name}</span>
-                  {res?.result?.status != null && (
-                    <span className={cn("font-mono text-[11px]", statusClass(res.result.status))}>
-                      {res.result.status}
+                    <span className="w-4 shrink-0 text-center font-mono text-[10px] text-fg-2">{i + 1}</span>
+                    <span
+                      className="w-10 shrink-0 font-mono text-[10px] font-bold"
+                      style={{ color: methodVar(step.method) }}
+                    >
+                      {step.method}
                     </span>
-                  )}
-                  {res?.result && (
-                    <span className="font-mono text-[10px] text-fg-2">{formatMs(res.result.timeMs)}</span>
-                  )}
-                  {res?.status === "running" && <span className="text-[10px] text-fg-2">…</span>}
-                  {res?.status === "error" && res.result == null && (
-                    <span className="text-[10px] text-danger">error</span>
-                  )}
-                </button>
-                {open && res && (
-                  <div className="border-t border-line-0">
-                    <StepBody result={res} />
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                    <span className="flex-1 truncate text-xs text-fg-0">{step.name}</span>
+                    {res?.result?.status != null && (
+                      <span className={cn("font-mono text-[11px]", statusClass(res.result.status))}>
+                        {res.result.status}
+                      </span>
+                    )}
+                    {res?.result && (
+                      <span className="font-mono text-[10px] text-fg-2">{formatMs(res.result.timeMs)}</span>
+                    )}
+                    {res?.status === "running" && <span className="text-[10px] text-fg-2">…</span>}
+                    {res?.status === "error" && res.result == null && (
+                      <span className="text-[10px] text-danger">error</span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        }
+        bottom={
+          <ResponseViewer
+            result={selectedResult?.result ?? null}
+            error={selectedResult?.error && !selectedResult.result ? selectedResult.error : null}
+            loading={selectedResult?.status === "running"}
+            emptyHint="Select a step to see its response"
+          />
+        }
+      />
     </div>
   );
 }

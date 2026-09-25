@@ -524,7 +524,7 @@ export const useKeel = create<KeelState>((set, get) => ({
       return {
         activeEditor: key,
         contentPanel: null,
-        activePath: tab.kind === "request" ? tab.path : s.activePath,
+        activePath: tab.kind === "request" ? tab.path : null,
       };
     });
   },
@@ -703,7 +703,9 @@ export const useKeel = create<KeelState>((set, get) => ({
           ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
           activeEditor:
-            s.activeEditor && !s.activeEditor.startsWith("env:") ? remap(s.activeEditor) : s.activeEditor,
+            s.activeEditor && s.activeEditor !== FLOW_TAB_KEY && !s.activeEditor.startsWith("env:")
+              ? remap(s.activeEditor)
+              : s.activeEditor,
         }));
         await Promise.all([get().refreshTree(), get().refreshGit()]);
       }
@@ -727,7 +729,9 @@ export const useKeel = create<KeelState>((set, get) => ({
           ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
           activeEditor:
-            s.activeEditor && !s.activeEditor.startsWith("env:") ? remap(s.activeEditor) : s.activeEditor,
+            s.activeEditor && s.activeEditor !== FLOW_TAB_KEY && !s.activeEditor.startsWith("env:")
+              ? remap(s.activeEditor)
+              : s.activeEditor,
         }));
       }
       await Promise.all([get().refreshTree(), get().refreshGit()]);

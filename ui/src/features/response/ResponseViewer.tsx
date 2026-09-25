@@ -40,26 +40,36 @@ function shortJson(v: unknown): string {
   }
 }
 
-export default function ResponseViewer() {
+export default function ResponseViewer(props: {
+  result?: SendResult | null;
+  error?: string | null;
+  loading?: boolean;
+  emptyHint?: string;
+} = {}) {
   const tab = useKeel((s) => s.tabs.find((t) => t.path === s.activePath));
   const toast = useKeel((s) => s.toast);
+  const overridden =
+    props.result !== undefined || props.error !== undefined || props.loading !== undefined;
+  const result = (overridden ? props.result : tab?.result) ?? null;
+  const error = (overridden ? props.error : tab?.error) ?? null;
+  const loading = overridden ? Boolean(props.loading) : Boolean(tab?.loading);
 
   const [respTab, setRespTab] = useState<ResponseTabId>("body");
   const [pretty, setPretty] = useState(true);
 
-  if (!tab || (!tab.result && !tab.error && !tab.loading)) {
+  if (!result && !error && !loading) {
     return (
       <div className="h-full min-h-0">
         <EmptyState
           icon={<Send size={24} />}
           title="No response yet"
-          hint="Send the request with Ctrl+Enter"
+          hint={props.emptyHint ?? "Send the request with Ctrl+Enter"}
         />
       </div>
     );
   }
 
-  if (tab.loading) {
+  if (loading && !result) {
     return (
       <div className="h-full min-h-0 flex flex-col items-center justify-center gap-2">
         <Spinner size={18} />
@@ -68,17 +78,17 @@ export default function ResponseViewer() {
     );
   }
 
-  if (tab.error) {
+  if (error && !result) {
     return (
       <div className="h-full min-h-0 overflow-y-auto p-2">
         <div className="border border-danger/40 bg-danger/5 rounded p-3 text-xs text-danger font-mono break-words">
-          {tab.error}
+          {error}
         </div>
       </div>
     );
   }
 
-  const result = tab.result as SendResult;
+  if (!result) return null;
 
   const previewable = isPreviewable(result.contentType);
   const activeRespTab: ResponseTabId =

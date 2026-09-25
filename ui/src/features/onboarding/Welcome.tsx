@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { FolderOpen, FolderPlus } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useKeel } from "@/state/store";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
+import { WindowControls } from "@/features/shell/Toolbar";
 
 export function Welcome() {
   const version = useKeel((s) => s.version);
@@ -25,7 +27,18 @@ export function Welcome() {
   };
 
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-8 bg-bg-0">
+    <div
+      data-tauri-drag-region
+      onMouseDown={(e) => {
+        if (e.buttons !== 1 || (e.target as HTMLElement).closest("button")) return;
+        if (e.detail === 2) void getCurrentWindow().toggleMaximize();
+        else void getCurrentWindow().startDragging();
+      }}
+      className="relative h-full flex flex-col items-center justify-center gap-8 bg-bg-0"
+    >
+      <div className="absolute top-1 right-1.5">
+        <WindowControls />
+      </div>
       <div className="flex flex-col items-center gap-3">
         <div className="h-14 w-14 rounded-xl overflow-hidden border border-line-0">
           <img src="/logo.png" alt="" className="keel-logo keel-logo-on-dark h-full w-full object-cover" />

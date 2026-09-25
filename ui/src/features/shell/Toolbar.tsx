@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Globe, Search, Settings, Sparkles } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { comboFor, formatCombo } from "@/shortcuts";
 import { cn } from "@/utils";
 import { useKeel } from "@/state/store";
@@ -46,7 +47,15 @@ export function Toolbar() {
   };
 
   return (
-    <div className="h-11 shrink-0 border-b border-line-0 bg-bg-1 grid grid-cols-[1fr_auto_1fr] items-center px-3 gap-3">
+    <div
+      data-tauri-drag-region
+      onMouseDown={(e) => {
+        if (e.buttons !== 1 || (e.target as HTMLElement).closest("button")) return;
+        if (e.detail === 2) void getCurrentWindow().toggleMaximize();
+        else void getCurrentWindow().startDragging();
+      }}
+      className="h-9 shrink-0 border-b border-line-0 bg-bg-1 grid grid-cols-[1fr_auto_1fr] items-center px-2.5 gap-2"
+    >
       <div className="flex items-center gap-3 min-w-0">
         <div className="flex items-center gap-2 shrink-0">
           <img src="/logo.png" alt="" className="keel-logo keel-logo-on-dark h-5 w-5 rounded object-contain" />
@@ -155,7 +164,40 @@ export function Toolbar() {
       >
         <Settings size={14} />
       </button>
+      <WindowControls />
       </div>
+    </div>
+  );
+}
+
+export function WindowControls() {
+  const win = getCurrentWindow();
+  const btn =
+    "h-7 w-7 shrink-0 rounded flex items-center justify-center text-fg-2 hover:bg-bg-hover hover:text-fg-0 focus-visible:ring-1 ring-accent/60 outline-none";
+  return (
+    <div className="flex items-center ml-1">
+      <button type="button" title="Minimize" className={btn} onClick={() => void win.minimize()}>
+        <span className="block h-px w-2.5 bg-current" />
+      </button>
+      <button
+        type="button"
+        title="Maximize"
+        className={btn}
+        onClick={() => void win.toggleMaximize()}
+      >
+        <span className="block h-2.5 w-2.5 border border-current" />
+      </button>
+      <button
+        type="button"
+        title="Close"
+        className={cn(btn, "hover:bg-danger hover:text-white")}
+        onClick={() => void win.close()}
+      >
+        <span className="relative block h-2.5 w-2.5">
+          <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-current" />
+          <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-current" />
+        </span>
+      </button>
     </div>
   );
 }

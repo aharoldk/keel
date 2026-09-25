@@ -1,0 +1,13 @@
+schemaVersion: "1"
+name: Get User
+request:
+  method: GET
+  url: "{{baseUrl}}/users/{{userId}}"
+  headers:
+    - name: Accept
+      value: application/json
+tests:
+  - expect: response.status
+    toBe: 200
+  - expect: response.json.id
+    toBeType: number

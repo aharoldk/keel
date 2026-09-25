@@ -1,0 +1,20 @@
+schemaVersion: "1"
+name: List Users
+request:
+  method: GET
+  url: "{{baseUrl}}/users"
+  params:
+    - name: page
+      value: "1"
+    - name: limit
+      value: "20"
+  headers:
+    - name: Accept
+      value: application/json
+tests:
+  - expect: response.status
+    toBe: 200
+  - expect: response.time
+    toBeLessThan: 2000
+  - expect: response.json
+    toBeType: array

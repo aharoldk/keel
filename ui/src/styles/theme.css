@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+:root {
+  /* Tell the browser to render native controls (select popups, scrollbars,
+     etc.) dark so they don't show up white in dark mode */
+  color-scheme: dark;
+  /* Dark (default): near-black gray, Accent Blue carries the color */
+  --bg-0: #1f1f1f;
+  --bg-1: #272727;
+  --bg-2: #2f2f2f;
+  --bg-3: #383838;
+  --bg-hover: #404040;
+  --line-0: #3a3a3a;
+  --line-1: #4d4d4d;
+  --line-focus: #3b9cff;
+  --fg-0: #ffffff;
+  --fg-1: #c8c8c8;
+  --fg-2: #9a9a9a;
+  --accent: #3b9cff;
+  --accent-strong: #0b5ed7;
+  --accent-soft: rgba(59, 156, 255, 0.16);
+  --accent-fg: #ffffff;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  --info: #7dd3fc;
+  --sel: rgba(59, 156, 255, 0.22);
+  --method-get: #7dd3fc;
+  --method-post: #6ee7b7;
+  --method-put: #fcd34d;
+  --method-patch: #f0abfc;
+  --method-delete: #fca5a5;
+  --method-head: #a5b4fc;
+  --method-options: #d4d4d8;
+  --method-trace: #fda4af;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-0: #f4f6f9;
+  --bg-1: #ffffff;
+  --bg-2: #f0f3f7;
+  --bg-3: #e6eaf1;
+  --bg-hover: #e2e7ef;
+  --line-0: #e3e8ef;
+  --line-1: #cdd5e0;
+  --line-focus: #0b5ed7;
+  --fg-0: #0f1f35;
+  --fg-1: #3d5270;
+  --fg-2: #6b7f99;
+  --accent: #0b5ed7;
+  --accent-strong: #094ead;
+  --accent-soft: rgba(11, 94, 215, 0.1);
+  --accent-fg: #ffffff;
+  --sel: rgba(11, 94, 215, 0.12);
+  --method-get: #0369a1;
+  --method-post: #047857;
+  --method-put: #b45309;
+  --method-patch: #a21caf;
+  --method-delete: #b91c1c;
+  --method-head: #4f46e5;
+  --method-options: #475569;
+  --method-trace: #be123c;
+}
+
+@theme inline {
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+  --color-bg-hover: var(--bg-hover);
+  --color-line-0: var(--line-0);
+  --color-line-1: var(--line-1);
+  --color-line-focus: var(--line-focus);
+  --color-fg-0: var(--fg-0);
+  --color-fg-1: var(--fg-1);
+  --color-fg-2: var(--fg-2);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --color-info: var(--info);
+  --font-mono: var(--mono);
+  --font-sans: var(--sans);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.keel-logo-on-light {
+  display: none;
+}
+
+[data-theme="light"] .keel-logo-on-dark {
+  display: none;
+}
+
+[data-theme="light"] .keel-logo-on-light {
+  display: block;
+}
+
+body {
+  font-family: var(--sans);
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.cm-editor {
+  user-select: text;
+}
+
+/* Native <select> popup: keep options on-theme even when the platform
+   webview ignores color-scheme (WebKitGTK ignores it for options) */
+select,
+select option {
+  background-color: var(--bg-2);
+  color: var(--fg-0);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-1);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::selection {
+  background: var(--sel);
+}

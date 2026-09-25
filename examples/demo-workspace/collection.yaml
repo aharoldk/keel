@@ -1,0 +1,6 @@
+schemaVersion: "1"
+name: Demo API
+description: A small Keel workspace demonstrating requests, chaining, tests and environments.
+variables:
+  userId: "1"
+defaultEnvironment: local

@@ -1,0 +1,8 @@
+schemaVersion: "1"
+name: Delete User
+request:
+  method: DELETE
+  url: "{{baseUrl}}/users/{{userId}}"
+tests:
+  - expect: response.status
+    toBeLessThan: 300

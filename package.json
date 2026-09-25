@@ -1,0 +1,18 @@
+{
+  "name": "keel",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Keel — a local-first, Git-native API client (Tauri desktop app)",
+  "scripts": {
+    "dev:app": "tauri dev",
+    "build:app": "tauri build",
+    "dev:ui": "npm --prefix ui run dev",
+    "build:ui": "npm --prefix ui run build",
+    "test": "npm --prefix ui test && cd src-tauri && cargo test",
+    "install:all": "npm install && npm --prefix ui install"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,0 +1,32 @@
+schemaVersion: "1"
+name: Login
+description: Exchange credentials for an access token. Stores the token as a session variable.
+request:
+  method: POST
+  url: "{{baseUrl}}/auth/login"
+  headers:
+    - name: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "email": "ada@example.com",
+        "password": "{{password}}"
+      }
+scripts:
+  preRequest: |-
+    console.log("logging in…");
+    keel.setVar("loginAt", Date.now());
+  postResponse: |-
+    keel.setVar("accessToken", json("token"));
+    log("token stored");
+    test("login returns 200 and a token", () => {
+      expect(res.getStatus()).toBe(200);
+      expect(typeof json("token")).toBeTypeOf("string");
+    });
+tests:
+  - expect: response.status
+    toBe: 200
+  - expect: response.json.token
+    toBeType: string

@@ -50,6 +50,17 @@ jobs:
             *) echo "unknown bump: $BUMP" >&2; exit 1 ;;
           esac
           tag="v$next"
+          wix=""
+          if [[ "$next" == *-rc.* ]]; then
+            rc="${next##*-rc.}"
+            base="${next%%-rc.*}"
+            IFS=. read -r wmajor wminor wpatch <<<"$base"
+            if [[ "$wpatch" -eq 0 || "$rc" -gt 65535 ]]; then
+              echo "cannot map $next to an MSI version that stays below the stable release" >&2
+              exit 1
+            fi
+            wix="$wmajor.$wminor.$((wpatch - 1)).$rc"
+          fi
 
           if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "tag $tag already exists" >&2
@@ -62,7 +73,15 @@ jobs:
           jq --arg v "$next" '.version = $v' ui/package.json > ui/package.json.tmp
           mv ui/package.json.tmp ui/package.json
 
-          jq --arg v "$next" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          jq --arg v "$next" --arg wix "$wix" '
+            .version = $v
+            | if $wix != "" then .bundle.windows.wix.version = $wix
+              else
+                del(.bundle.windows.wix.version)
+                | if .bundle.windows.wix == {} then del(.bundle.windows.wix) else . end
+                | if .bundle.windows == {} then del(.bundle.windows) else . end
+              end
+          ' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
           node -e '

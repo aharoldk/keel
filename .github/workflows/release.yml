@@ -65,6 +65,34 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
 
+      # WiX only accepts major.minor.patch.build. Map 0.1.2-rc.1 to 0.1.1.1 so the
+      # candidate stays below the stable 0.1.2 MSI (0.1.2.0).
+      - name: Use a numeric MSI version for release candidates
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "src-tauri/tauri.conf.json";
+          const conf = JSON.parse(fs.readFileSync(path, "utf8"));
+          const match = /^(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$/.exec(conf.version);
+          if (!match) process.exit(0);
+          const major = Number(match[1]);
+          const minor = Number(match[2]);
+          const patch = Number(match[3]);
+          const rc = Number(match[4]);
+          if (patch === 0 || rc > 65535) {
+            console.error(`cannot map ${conf.version} to an MSI version that stays below the stable release`);
+            process.exit(1);
+          }
+          const wix = `${major}.${minor}.${patch - 1}.${rc}`;
+          conf.bundle.windows = conf.bundle.windows ?? {};
+          conf.bundle.windows.wix = conf.bundle.windows.wix ?? {};
+          conf.bundle.windows.wix.version = wix;
+          fs.writeFileSync(path, JSON.stringify(conf, null, 2) + "\n");
+          console.log(`${conf.version} -> MSI ${wix}`);
+          NODE
+
       - name: Build app
         run: npm run build:app -- --target ${{ matrix.target }}
 

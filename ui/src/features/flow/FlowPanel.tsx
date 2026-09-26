@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, Play, Plus, Save, Trash2, Upload, Workflow, X } from "lucide-react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, FileDown, FileUp, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
+import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "@/api/client";
 import { flowStepPath, type FlowDoc, type HttpMethod, type SendResult, type TreeNode } from "@/api/types";
 import { SplitPane } from "@/components/SplitPane";
@@ -63,13 +63,15 @@ export function FlowPanel() {
   const toast = useKeel((s) => s.toast);
   const requests = useMemo(() => requestOptions(tree), [tree]);
 
-  const [flows, setFlows] = useState<string[]>([]);
+  const [flows, setFlows] = useState<{ fileName: string; name: string }[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
   const [name, setName] = useState("Untitled flow");
   const [steps, setSteps] = useState<Step[]>([]);
   const [pick, setPick] = useState("");
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addMenu, setAddMenu] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
 
   const refresh = () => {
     api.flowList().then(setFlows).catch((e) => toast(String(e), "error"));
@@ -80,6 +82,22 @@ export function FlowPanel() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace?.root]);
+
+  useEffect(() => {
+    if (!addMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!addMenuRef.current?.contains(e.target as Node)) setAddMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAddMenu(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [addMenu]);
 
   const load = async (file: string) => {
     try {
@@ -127,6 +145,30 @@ export function FlowPanel() {
       refresh();
       await load(saved);
       toast("Flow imported", "success");
+    } catch (e) {
+      toast(String(e), "error");
+    }
+  };
+
+  const exportFlow = async () => {
+    const doc: FlowDoc = {
+      schemaVersion: "1",
+      name: name.trim() || "Untitled flow",
+      kind: "flow",
+      steps: steps.map((s) =>
+        s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
+      ),
+    };
+    const dest = await saveFileDialog({
+      title: "Export flow",
+      defaultPath: `${doc.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "flow"}.yaml`,
+      filters: [{ name: "Flow (YAML)", extensions: ["yaml"] }],
+    });
+    if (!dest) return;
+    try {
+      const yaml = await api.flowToYaml(doc);
+      await api.saveResponse(dest, btoa(unescape(encodeURIComponent(yaml))));
+      toast("Flow exported", "success");
     } catch (e) {
       toast(String(e), "error");
     }
@@ -201,9 +243,45 @@ export function FlowPanel() {
       <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-2.5 gap-2 text-xs font-semibold uppercase tracking-wider text-fg-2">
         <Workflow size={14} className="shrink-0" />
         <span className="flex-1">Flow</span>
-        <IconButton title="Import flow" className="h-6 w-6" disabled={running} onClick={() => void importFlow()}>
-          <Upload size={13} />
-        </IconButton>
+        <div ref={addMenuRef} className="relative">
+          <IconButton
+            title="Add"
+            aria-label="Add"
+            aria-haspopup="menu"
+            aria-expanded={addMenu}
+            className="h-6 w-6"
+            disabled={running}
+            onClick={() => setAddMenu((open) => !open)}
+          >
+            <Plus size={13} />
+          </IconButton>
+          {addMenu && (
+            <div className="absolute right-0 top-full mt-1 z-40 w-44 rounded-md border border-line-0 bg-bg-1 shadow-xl py-1">
+              <button
+                type="button"
+                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-1 hover:bg-bg-hover hover:text-fg-0"
+                onClick={() => {
+                  setAddMenu(false);
+                  void importFlow();
+                }}
+              >
+                <span className="shrink-0 text-fg-2"><FileDown size={13} /></span>
+                Import flow
+              </button>
+              <button
+                type="button"
+                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-1 hover:bg-bg-hover hover:text-fg-0"
+                onClick={() => {
+                  setAddMenu(false);
+                  void exportFlow();
+                }}
+              >
+                <span className="shrink-0 text-fg-2"><FileUp size={13} /></span>
+                Export flow
+              </button>
+            </div>
+          )}
+        </div>
         <IconButton title="Save flow" className="h-6 w-6" disabled={saving || running} onClick={() => void save()}>
           <Save size={13} />
         </IconButton>
@@ -236,8 +314,8 @@ export function FlowPanel() {
           >
             <option value="">New flow</option>
             {flows.map((f) => (
-              <option key={f} value={f}>
-                {f.replace(/\.yaml$/, "")}
+              <option key={f.fileName} value={f.fileName}>
+                {f.name}
               </option>
             ))}
           </Select>
@@ -335,11 +413,6 @@ export function FlowRun() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
-      <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-3 gap-2 text-xs font-semibold uppercase tracking-wider text-fg-2">
-        <Workflow size={14} className="shrink-0" />
-        <span className="flex-1 truncate normal-case tracking-normal text-fg-0">{run.name}</span>
-        {run.running && <span className="normal-case tracking-normal text-fg-2">Running…</span>}
-      </div>
       <SplitPane
         className="flex-1 min-h-0"
         direction="horizontal"

@@ -79,6 +79,7 @@ export function CollectionSettingsModal({ open, onClose }: Props) {
   const toast = useKeel((s) => s.toast);
   const refreshTree = useKeel((s) => s.refreshTree);
   const activeEnv = useKeel((s) => s.activeEnv);
+  const envValuesRevision = useKeel((s) => s.envValuesRevision);
   const workspaceRoot = useKeel((s) => s.workspace?.root ?? null);
 
   const [draft, setDraft] = useState<CollectionDoc | null>(null);
@@ -98,7 +99,7 @@ export function CollectionSettingsModal({ open, onClose }: Props) {
     return () => {
       alive = false;
     };
-  }, [open, activeEnv, workspaceRoot]);
+  }, [open, activeEnv, workspaceRoot, envValuesRevision]);
 
   useEffect(() => {
     if (!open) return;

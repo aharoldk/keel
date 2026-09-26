@@ -1088,7 +1088,7 @@ pub async fn ai_generate(args: AiGenerateArgs, ctx: Ctx<'_>) -> Result<String, S
 }
 
 #[tauri::command]
-pub async fn flow_list(ctx: Ctx<'_>) -> Result<Vec<String>, String> {
+pub async fn flow_list(ctx: Ctx<'_>) -> Result<Vec<FlowSummaryDto>, String> {
     with_workspace(&ctx, |root| workspace::flow_list(root)).await
 }
 
@@ -1135,6 +1135,11 @@ pub async fn export_collection(folder: String, ctx: Ctx<'_>) -> Result<String, S
 
 #[tauri::command]
 pub fn request_to_yaml(doc: RequestDoc) -> Result<String, String> {
+    crate::model::yaml_of(&doc)
+}
+
+#[tauri::command]
+pub fn flow_to_yaml(doc: FlowDoc) -> Result<String, String> {
     crate::model::yaml_of(&doc)
 }
 

@@ -622,21 +622,27 @@ pub fn delete_node(root: &Path, relative: &str) -> Result<(), String> {
 
 pub const FLOW_DIR: &str = "flows";
 
-pub fn flow_list(root: &Path) -> Result<Vec<String>, String> {
+pub fn flow_list(root: &Path) -> Result<Vec<crate::model::FlowSummaryDto>, String> {
     let dir = root.join(FLOW_DIR);
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
-    let mut names: Vec<String> = std::fs::read_dir(&dir)
+    let mut items: Vec<crate::model::FlowSummaryDto> = std::fs::read_dir(&dir)
         .map_err(|e| format!("read flows: {e}"))?
         .flatten()
         .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            name.ends_with(".yaml").then_some(name)
+            let file_name = e.file_name().to_string_lossy().into_owned();
+            if !file_name.ends_with(".yaml") {
+                return None;
+            }
+            let name = flow_read(root, &file_name)
+                .map(|doc| doc.name)
+                .unwrap_or_else(|_| file_name.trim_end_matches(".yaml").to_string());
+            Some(crate::model::FlowSummaryDto { file_name, name })
         })
         .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    Ok(names)
+    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(items)
 }
 
 pub fn flow_read(root: &Path, file_name: &str) -> Result<FlowDoc, String> {
@@ -1168,7 +1174,10 @@ request:
         assert!(name.ends_with(".yaml"));
         let doc = flow_read(root, &name).expect("read");
         assert_eq!(doc.steps.len(), 2);
-        assert_eq!(flow_list(root).expect("list"), vec![name.clone()]);
+        let listed = flow_list(root).expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].file_name, name);
+        assert_eq!(listed[0].name, "Login then list");
         flow_delete(root, &name).expect("delete");
         assert!(flow_list(root).expect("list").is_empty());
     }

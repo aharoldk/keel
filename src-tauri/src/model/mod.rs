@@ -691,6 +691,13 @@ pub struct WorkspaceInfoDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FlowSummaryDto {
+    pub file_name: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EnvSummaryDto {
     pub file_name: String,
     pub name: String,

@@ -111,6 +111,7 @@ export default function RequestEditor() {
   const toast = useKeel((s) => s.toast);
   const openCodegen = useKeel((s) => s.openCodegen);
   const activeEnv = useKeel((s) => s.activeEnv);
+  const envValuesRevision = useKeel((s) => s.envValuesRevision);
   const workspaceRoot = useKeel((s) => s.workspace?.root ?? null);
   const splitDirection = useKeel((s) => s.splitDirection);
   const shortcuts = useKeel((s) => s.settings.shortcuts);
@@ -127,7 +128,7 @@ export default function RequestEditor() {
     return () => {
       alive = false;
     };
-  }, [activePath, activeEnv, workspaceRoot]);
+  }, [activePath, activeEnv, workspaceRoot, envValuesRevision]);
 
   const [editorTab, setEditorTab] = useState<EditorTabId>("params");
   const [grpcResult, setGrpcResult] = useState("");

@@ -140,6 +140,7 @@ pub fn run() {
             commands::ai_generate,
             commands::request_to_yaml,
             commands::request_from_yaml,
+            commands::flow_to_yaml,
             commands::flow_list,
             commands::flow_read,
             commands::flow_save,

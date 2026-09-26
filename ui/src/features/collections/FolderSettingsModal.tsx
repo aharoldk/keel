@@ -83,6 +83,7 @@ export function FolderSettingsModal({ folderPath, onClose }: Props) {
   const toast = useKeel((s) => s.toast);
   const refreshTree = useKeel((s) => s.refreshTree);
   const activeEnv = useKeel((s) => s.activeEnv);
+  const envValuesRevision = useKeel((s) => s.envValuesRevision);
   const workspaceRoot = useKeel((s) => s.workspace?.root ?? null);
 
   const [draft, setDraft] = useState<FolderDoc | null>(null);
@@ -101,7 +102,7 @@ export function FolderSettingsModal({ folderPath, onClose }: Props) {
     return () => {
       alive = false;
     };
-  }, [folderPath, activeEnv, workspaceRoot]);
+  }, [folderPath, activeEnv, workspaceRoot, envValuesRevision]);
 
   useEffect(() => {
     if (!folderPath) return;

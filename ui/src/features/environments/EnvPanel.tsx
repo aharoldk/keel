@@ -297,6 +297,7 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
   const loadEnvs = useKeel((s) => s.loadEnvs);
   const toast = useKeel((s) => s.toast);
   const envValuesRevision = useKeel((s) => s.envValuesRevision);
+  const selfRevision = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState(env.name);
@@ -345,7 +346,7 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
   }, [env.fileName, env.name]);
 
   useEffect(() => {
-    if (envValuesRevision === 0) return;
+    if (envValuesRevision === 0 || envValuesRevision === selfRevision.current) return;
     let alive = true;
     api
       .envValuesRead(env.fileName)
@@ -377,6 +378,9 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
       } else {
         await api.envValueDelete(env.fileName, key);
       }
+      const next = useKeel.getState().envValuesRevision + 1;
+      selfRevision.current = next;
+      useKeel.setState({ envValuesRevision: next });
     } catch (err) {
       toast(String(err), "error");
     }
@@ -439,30 +443,28 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
-      <div className="h-9 shrink-0 border-b border-line-0 flex items-center justify-end px-3">
-        <Button variant="primary" disabled={saving || loading} onClick={save}>
-          Save
-        </Button>
-      </div>
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <Spinner size={18} />
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
+          <div className="flex items-end gap-3">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-2">
                 Name
               </span>
               <TextInput value={name} onChange={(e) => setName(e.target.value)} />
             </label>
-            <label className="flex flex-col gap-1">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-2">
                 Description
               </span>
               <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
             </label>
+            <Button variant="primary" disabled={saving || loading} onClick={save}>
+              Save
+            </Button>
           </div>
 
           <section className="flex flex-col gap-1.5">

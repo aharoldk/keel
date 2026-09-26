@@ -121,7 +121,7 @@ describe("GitPanel", () => {
     expect(screen.getByText(/keel ·/)).toBeTruthy();
   });
 
-  it("opens diff modal on row click", async () => {
+  it("opens a file diff in the content area on row click", async () => {
     invokeMock.mockImplementation(((cmd: string) => {
       if (cmd === "git_diff_file") return Promise.resolve("--- a/users.yaml\n+++ b/users.yaml");
       if (cmd === "git_status") return Promise.resolve(structuredClone(withRepo));
@@ -131,9 +131,54 @@ describe("GitPanel", () => {
     useKeel.setState({ git: structuredClone(withRepo) });
     render(<GitPanel />);
     fireEvent.click(await screen.findByText("users.yaml"));
-    await screen.findByText(/Diff — users.yaml/);
     await waitFor(() => {
-      expect(screen.getByText(/--- a\/users.yaml/)).toBeTruthy();
+      const tab = useKeel.getState().editorTabs.find((t) => t.kind === "git-diff");
+      expect(tab).toMatchObject({
+        kind: "git-diff",
+        key: "file:users.yaml",
+        title: "users.yaml",
+        text: "--- a/users.yaml\n+++ b/users.yaml",
+      });
+      expect(useKeel.getState().activeEditor).toBe("git:file:users.yaml");
     });
+  });
+
+  it("opens a commit diff in the content area on history click", async () => {
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "git_log") {
+        return Promise.resolve([
+          {
+            oid: "abcdef1234567890",
+            shortOid: "abcdef1",
+            message: "initial commit",
+            author: "keel",
+            time: "2024-01-01T00:00:00Z",
+          },
+        ]);
+      }
+      if (cmd === "git_diff_commit") return Promise.resolve("diff --git a/users.yaml");
+      return Promise.resolve(null);
+    }) as unknown as typeof invoke);
+
+    useKeel.setState({ git: structuredClone(withRepo) });
+    render(<GitPanel />);
+    fireEvent.click(await screen.findByText("initial commit"));
+    await waitFor(() => {
+      const call = invokeMock.mock.calls.find((c) => c[0] === "git_diff_commit");
+      expect(call?.[1]).toEqual({ oid: "abcdef1234567890" });
+      expect(useKeel.getState().activeEditor).toBe("git:commit:abcdef1234567890");
+    });
+  });
+
+  it("collapses staged, changes, and history", async () => {
+    useKeel.setState({ git: structuredClone(withRepo) });
+    render(<GitPanel />);
+    await screen.findByText("users.yaml");
+    fireEvent.click(screen.getByRole("button", { name: /Staged/ }));
+    expect(screen.queryByText("pet.yaml")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Changes/ }));
+    expect(screen.queryByText("users.yaml")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.queryByText("No commits yet")).toBeNull();
   });
 });

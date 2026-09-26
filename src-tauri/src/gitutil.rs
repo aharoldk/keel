@@ -503,6 +503,40 @@ pub fn diff_file(root: &Path, path: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// Unified patch for one commit against its first parent (or the empty tree
+/// for a root commit).
+pub fn diff_commit(root: &Path, oid: &str) -> Result<String, String> {
+    let repo = open(root)?;
+    let oid = git2::Oid::from_str(oid).map_err(|e| format!("bad commit id: {e}"))?;
+    let commit = repo
+        .find_commit(oid)
+        .map_err(|e| format!("commit not found: {e}"))?;
+    let tree = commit.tree().map_err(|e| e.to_string())?;
+    let parent_tree = commit
+        .parent(0)
+        .ok()
+        .and_then(|p| p.tree().ok());
+    let diff = repo
+        .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)
+        .map_err(|e| e.to_string())?;
+
+    let mut out = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let origin = line.origin();
+        if origin == '+' || origin == '-' || origin == ' ' || origin == '\\' {
+            out.push(origin);
+        }
+        let content = std::str::from_utf8(line.content()).unwrap_or("");
+        out.push_str(content);
+        true
+    })
+    .map_err(|e| e.to_string())?;
+    if out.is_empty() {
+        out = "No changes in this commit.".to_string();
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +580,10 @@ mod tests {
         write(&root.join("users/get-user.yaml"), "name: Get User v2\n");
         let diff = diff_file(root, "users/get-user.yaml").expect("diff");
         assert!(diff.contains("Get User v2"), "{diff}");
+
+        let commits = log(root, 10).expect("log");
+        let commit_diff = diff_commit(root, &commits[1].oid).expect("commit diff");
+        assert!(commit_diff.contains("get-user.yaml"), "{commit_diff}");
     }
 
     #[test]

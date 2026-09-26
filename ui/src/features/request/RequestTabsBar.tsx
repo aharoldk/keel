@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Globe2, Plus, Workflow, X } from "lucide-react";
+import { GitCompare, Globe2, Plus, Workflow, X } from "lucide-react";
 import { tabIsDirty, tabKey, useKeel, type EditorTab, type Tab } from "@/state/store";
 import { Button, IconButton, Modal, Spinner, TextInput } from "@/components/ui";
 import { cn, methodVar } from "@/utils";
@@ -12,6 +12,14 @@ function TabLabel({ editor, request }: { editor: EditorTab; request?: Tab }) {
       <>
         <Workflow size={12} className="shrink-0 text-fg-2" />
         <span className="truncate max-w-40">{flowName || "Flow"}</span>
+      </>
+    );
+  }
+  if (editor.kind === "git-diff") {
+    return (
+      <>
+        <GitCompare size={12} className="shrink-0 text-fg-2" />
+        <span className="truncate max-w-40">{editor.title}</span>
       </>
     );
   }

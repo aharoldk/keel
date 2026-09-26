@@ -24,7 +24,12 @@ export type ContentPanel = { kind: "flow" } | { kind: "dashboard" };
 export type EditorTab =
   | { kind: "request"; path: string }
   | { kind: "environment"; fileName: string }
-  | { kind: "flow"; fileName: string | null };
+  | { kind: "flow"; fileName: string | null }
+  | { kind: "git-diff"; key: string; title: string; text: string | null };
+
+export function gitDiffTabKey(key: string): string {
+  return `git:${key}`;
+}
 
 export function envTabKey(fileName: string): string {
   return `env:${fileName}`;
@@ -35,6 +40,7 @@ export const FLOW_TAB_KEY = "flow";
 export function tabKey(tab: EditorTab): string {
   if (tab.kind === "request") return tab.path;
   if (tab.kind === "environment") return envTabKey(tab.fileName);
+  if (tab.kind === "git-diff") return gitDiffTabKey(tab.key);
   return FLOW_TAB_KEY;
 }
 
@@ -136,6 +142,7 @@ interface KeelState {
   openRequest: (path: string) => Promise<void>;
   openEnvironment: (fileName: string) => void;
   openFlow: () => void;
+  openGitDiff: (key: string, title: string, text: string | null) => void;
   closeTab: (path: string) => void;
   closeEditor: (key: string) => void;
   setActiveTab: (path: string) => void;
@@ -501,6 +508,19 @@ export const useKeel = create<KeelState>((set, get) => ({
     });
   },
 
+  openGitDiff(key, title, text) {
+    const tabKeyValue = gitDiffTabKey(key);
+    set((s) => {
+      const existing = s.editorTabs.find((t) => t.kind === "git-diff" && t.key === key);
+      const editorTabs = existing
+        ? s.editorTabs.map((t) =>
+            t.kind === "git-diff" && t.key === key ? { ...t, title, text } : t,
+          )
+        : [...s.editorTabs, { kind: "git-diff" as const, key, title, text }];
+      return { editorTabs, activeEditor: tabKeyValue, contentPanel: null };
+    });
+  },
+
   closeTab(path) {
     get().closeEditor(path);
   },
@@ -711,7 +731,10 @@ export const useKeel = create<KeelState>((set, get) => ({
           ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
           activeEditor:
-            s.activeEditor && s.activeEditor !== FLOW_TAB_KEY && !s.activeEditor.startsWith("env:")
+            s.activeEditor &&
+            s.activeEditor !== FLOW_TAB_KEY &&
+            !s.activeEditor.startsWith("env:") &&
+            !s.activeEditor.startsWith("git:")
               ? remap(s.activeEditor)
               : s.activeEditor,
         }));
@@ -737,7 +760,10 @@ export const useKeel = create<KeelState>((set, get) => ({
           ),
           activePath: s.activePath ? remap(s.activePath) : s.activePath,
           activeEditor:
-            s.activeEditor && s.activeEditor !== FLOW_TAB_KEY && !s.activeEditor.startsWith("env:")
+            s.activeEditor &&
+            s.activeEditor !== FLOW_TAB_KEY &&
+            !s.activeEditor.startsWith("env:") &&
+            !s.activeEditor.startsWith("git:")
               ? remap(s.activeEditor)
               : s.activeEditor,
         }));

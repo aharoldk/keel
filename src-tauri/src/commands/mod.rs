@@ -602,6 +602,11 @@ pub async fn git_diff_file(path: String, ctx: Ctx<'_>) -> Result<String, String>
 }
 
 #[tauri::command]
+pub async fn git_diff_commit(oid: String, ctx: Ctx<'_>) -> Result<String, String> {
+    with_workspace(&ctx, |root| gitutil::diff_commit(root, &oid)).await
+}
+
+#[tauri::command]
 pub async fn git_branches(ctx: Ctx<'_>) -> Result<Vec<String>, String> {
     with_workspace(&ctx, gitutil::branches).await
 }

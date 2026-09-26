@@ -96,6 +96,7 @@ export const api = {
   gitLog: (limit?: number) => invoke<GitCommit[]>("git_log", { limit }),
   gitInit: () => invoke<void>("git_init"),
   gitDiffFile: (path: string) => invoke<string>("git_diff_file", { path }),
+  gitDiffCommit: (oid: string) => invoke<string>("git_diff_commit", { oid }),
   gitBranches: () => invoke<string[]>("git_branches"),
   gitCheckout: (name: string) => invoke<void>("git_checkout", { name }),
   gitCreateBranch: (name: string) => invoke<void>("git_create_branch", { name }),

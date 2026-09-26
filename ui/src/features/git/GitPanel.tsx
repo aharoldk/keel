@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronRight,
   GitBranch,
   GitCommitHorizontal,
   Minus,
@@ -35,11 +36,12 @@ export function GitPanel() {
   const gitPull = useKeel((s) => s.gitPull);
   const gitPush = useKeel((s) => s.gitPush);
   const refreshGit = useKeel((s) => s.refreshGit);
+  const openGitDiff = useKeel((s) => s.openGitDiff);
   const toast = useKeel((s) => s.toast);
 
   const [message, setMessage] = useState("");
   const [commits, setCommits] = useState<GitCommit[]>([]);
-  const [diff, setDiff] = useState<{ path: string; text: string | null } | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branches, setBranches] = useState<string[]>([]);
   const [branchOpen, setBranchOpen] = useState(false);
   const [newBranch, setNewBranch] = useState("");
@@ -101,15 +103,31 @@ export function GitPanel() {
   const staged = git.entries.filter((e) => e.staged);
   const unstaged = git.entries.filter((e) => !e.staged);
 
-  const openDiff = async (path: string) => {
-    setDiff({ path, text: null });
-    try {
-      const text = await api.gitDiffFile(path);
-      setDiff({ path, text });
-    } catch (err) {
-      setDiff(null);
-      toast(String(err), "error");
-    }
+  const toggleSection = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openDiff = (path: string) => {
+    const title = path.split("/").pop() || path;
+    openGitDiff(`file:${path}`, title, null);
+    void api
+      .gitDiffFile(path)
+      .then((text) => openGitDiff(`file:${path}`, title, text))
+      .catch((err) => toast(String(err), "error"));
+  };
+
+  const openCommit = (commit: GitCommit) => {
+    const title = commit.shortOid;
+    openGitDiff(`commit:${commit.oid}`, title, null);
+    void api
+      .gitDiffCommit(commit.oid)
+      .then((text) => openGitDiff(`commit:${commit.oid}`, title, text))
+      .catch((err) => toast(String(err), "error"));
   };
 
   const doCommit = async () => {
@@ -275,44 +293,55 @@ export function GitPanel() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-2">
-          Staged ({staged.length})
-        </div>
-        {staged.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-fg-2">Nothing staged</p>
-        ) : (
-          staged.map(renderEntry(true))
-        )}
-
-        <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-2">
-          Changes ({unstaged.length})
-        </div>
-        {unstaged.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-fg-2">No changes</p>
-        ) : (
-          unstaged.map(renderEntry(false))
-        )}
-
-        <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-2">
-          History
-        </div>
-        {commits.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-fg-2">No commits yet</p>
-        ) : (
-          commits.map((c) => (
-            <div
-              key={c.oid}
-              title={`${c.shortOid} — ${c.message}\n${c.author}`}
-              className="h-7 px-2 flex items-center gap-2 select-none"
-            >
-              <span className="shrink-0 font-mono text-[10px] text-accent">{c.shortOid}</span>
-              <span className="flex-1 min-w-0 truncate text-xs text-fg-1">{c.message}</span>
-              <span className="shrink-0 text-[10px] text-fg-2">
-                {c.author} · {formatTime(c.time)}
-              </span>
-            </div>
-          ))
-        )}
+        <Section
+          id="staged"
+          label={`Staged (${staged.length})`}
+          collapsed={collapsed.has("staged")}
+          onToggle={toggleSection}
+        >
+          {staged.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-fg-2">Nothing staged</p>
+          ) : (
+            staged.map(renderEntry(true))
+          )}
+        </Section>
+        <Section
+          id="changes"
+          label={`Changes (${unstaged.length})`}
+          collapsed={collapsed.has("changes")}
+          onToggle={toggleSection}
+        >
+          {unstaged.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-fg-2">No changes</p>
+          ) : (
+            unstaged.map(renderEntry(false))
+          )}
+        </Section>
+        <Section
+          id="history"
+          label="History"
+          collapsed={collapsed.has("history")}
+          onToggle={toggleSection}
+        >
+          {commits.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-fg-2">No commits yet</p>
+          ) : (
+            commits.map((c) => (
+              <div
+                key={c.oid}
+                title={`${c.shortOid} — ${c.message}\n${c.author}`}
+                onClick={() => openCommit(c)}
+                className="h-7 px-2 flex items-center gap-2 select-none cursor-pointer rounded hover:bg-bg-hover"
+              >
+                <span className="shrink-0 font-mono text-[10px] text-accent">{c.shortOid}</span>
+                <span className="flex-1 min-w-0 truncate text-xs text-fg-1">{c.message}</span>
+                <span className="shrink-0 text-[10px] text-fg-2">
+                  {c.author} · {formatTime(c.time)}
+                </span>
+              </div>
+            ))
+          )}
+        </Section>
       </div>
 
       <div className="shrink-0 border-t border-line-0 p-2 flex flex-col gap-1.5">
@@ -417,22 +446,34 @@ export function GitPanel() {
         </form>
       </Modal>
 
-      <Modal
-        open={diff !== null}
-        onClose={() => setDiff(null)}
-        title={diff ? `Diff — ${diff.path}` : "Diff"}
-        width="max-w-2xl"
+    </div>
+  );
+}
+
+function Section({
+  id,
+  label,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  id: string;
+  label: string;
+  collapsed: boolean;
+  onToggle: (id: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        className="w-full px-2 pt-2 pb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-fg-2 hover:text-fg-0"
       >
-        {diff?.text == null ? (
-          <div className="flex items-center justify-center py-10">
-            <Spinner size={18} />
-          </div>
-        ) : (
-          <pre className="font-mono text-[10px] whitespace-pre-wrap max-h-[50vh] overflow-y-auto text-fg-1">
-            {diff.text}
-          </pre>
-        )}
-      </Modal>
+        <ChevronRight size={12} className={cn("shrink-0 transition-transform", !collapsed && "rotate-90")} />
+        {label}
+      </button>
+      {!collapsed && children}
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { RunnerModal } from "@/features/runner/RunnerModal";
 import { CodegenModal } from "@/features/codegen/CodegenModal";
 import { AiPanel } from "@/features/ai/AiPanel";
 import { Dashboard } from "@/features/dashboard/Dashboard";
+import { GitDiffView } from "@/features/git/GitDiffView";
 
 export default function App() {
   const ready = useKeel((s) => s.ready);
@@ -72,6 +73,8 @@ export default function App() {
               <RequestTabsBar />
               {activeTab?.kind === "flow" ? (
                 <FlowRun />
+              ) : activeTab?.kind === "git-diff" ? (
+                <GitDiffView title={activeTab.title} text={activeTab.text} />
               ) : openEnvFile ? (
                 <EnvironmentEditor fileName={openEnvFile} />
               ) : activePath ? (

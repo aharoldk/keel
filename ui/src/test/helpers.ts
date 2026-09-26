@@ -19,6 +19,7 @@ export const defaultResponses: Record<string, unknown> = {
   git_status: { hasRepo: false, branch: null, entries: [], remoteUrl: null, ahead: null, behind: null },
   git_log: [],
   git_diff_file: "",
+  git_diff_commit: "",
   settings_get: {
     theme: "dark",
     requestTimeoutSec: 30,

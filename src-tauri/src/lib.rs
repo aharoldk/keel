@@ -93,6 +93,7 @@ pub fn run() {
             commands::git_log,
             commands::git_init,
             commands::git_diff_file,
+            commands::git_diff_commit,
             commands::git_branches,
             commands::git_checkout,
             commands::git_create_branch,

@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { vi } from "vitest";
 import { useKeel } from "@/state/store";
 
 export const invokeMock = vi.mocked(invoke);
 export const openDialogMock = vi.mocked(openDialog);
+export const saveDialogMock = vi.mocked(saveFileDialog);
 
 export const defaultResponses: Record<string, unknown> = {
   workspace_info: null,
@@ -42,6 +43,7 @@ export function installDefaultResponses() {
 export function resetStore() {
   invokeMock.mockClear();
   openDialogMock.mockClear();
+  saveDialogMock.mockClear();
   useKeel.setState({
     ready: true,
     version: "",

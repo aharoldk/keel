@@ -6,6 +6,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Loader2,
   Play,
   Plus,
   Search,
@@ -94,6 +95,42 @@ function folderOptions(nodes: FlowTreeNode[], prefix = ""): { path: string; labe
   return out;
 }
 
+function flowDocOf(editor: EditorState): FlowDoc {
+  return {
+    schemaVersion: "1",
+    name: editor.name.trim() || "Untitled flow",
+    kind: "flow",
+    steps: editor.steps.map((s) =>
+      s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
+    ),
+  };
+}
+
+function parentFolder(path: string) {
+  const i = path.lastIndexOf("/");
+  return i === -1 ? "" : path.slice(0, i);
+}
+
+function canDropOn(src: string, dest: string) {
+  return src !== dest && !dest.startsWith(`${src}/`) && parentFolder(src) !== dest;
+}
+
+function placeAt(
+  src: string | null,
+  path: string,
+  isFolder: boolean,
+  el: HTMLElement,
+  clientY: number,
+): { before: boolean; into: boolean } | null {
+  if (!src || src === path || path.startsWith(`${src}/`)) return null;
+  const rect = el.getBoundingClientRect();
+  const height = rect.height || 28;
+  const y = (clientY - rect.top) / height;
+  const into = isFolder && y > 0.25 && y < 0.75;
+  if (into && !canDropOn(src, path)) return null;
+  return { before: y < 0.5, into };
+}
+
 export function FlowPanel() {
   const tree = useKeel((s) => s.tree);
   const workspace = useKeel((s) => s.workspace);
@@ -114,6 +151,19 @@ export function FlowPanel() {
   const [createFolder, setCreateFolder] = useState<string | null>(null);
   const [folderName, setFolderName] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; node: FlowTreeNode } | null>(null);
+  const [runningPath, setRunningPath] = useState<string | null>(null);
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropBefore, setDropBefore] = useState(true);
+  const [dropInto, setDropInto] = useState(false);
+  const dragRef = useRef<{
+    path: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const dropRef = useRef<{ path: string; before: boolean; into: boolean } | null>(null);
+  const suppressClick = useRef(false);
 
   const folders = useMemo(() => folderOptions(nodes), [nodes]);
 
@@ -147,6 +197,88 @@ export function FlowPanel() {
     };
   }, [addMenu, menu]);
 
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) return;
+        drag.moved = true;
+        setDraggingPath(drag.path);
+      }
+      let under: Element | null = null;
+      try {
+        under = document.elementFromPoint(e.clientX, e.clientY);
+      } catch {
+        under = null;
+      }
+      const hit = under?.closest("[data-flow-path]");
+      if (!(hit instanceof HTMLElement)) {
+        dropRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      const path = hit.dataset.flowPath;
+      if (!path) return;
+      const place = placeAt(drag.path, path, hit.dataset.flowKind === "folder", hit, e.clientY);
+      if (!place) {
+        dropRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      dropRef.current = { path, before: place.before, into: place.into };
+      setDropTarget(path);
+      setDropBefore(place.before);
+      setDropInto(place.into);
+    };
+    const finish = () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      dragRef.current = null;
+      const dest = dropRef.current;
+      dropRef.current = null;
+      if (!drag.moved) {
+        setDraggingPath(null);
+        setDropTarget(null);
+        return;
+      }
+      suppressClick.current = true;
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+      const src = drag.path;
+      setDraggingPath(null);
+      setDropTarget(null);
+      if (!dest || dest.path === src || dest.path.startsWith(`${src}/`)) return;
+      const fail = (err: unknown) => useKeel.getState().toast(String(err), "error");
+      const done = (moved: string) => {
+        if (moved !== src) {
+          setSelected((s) => (s === src ? moved : s));
+          setEditor((ed) =>
+            ed?.fileName === src ? { ...ed, fileName: moved, folder: parentFolder(moved) } : ed,
+          );
+        }
+        api.flowTree().then(setNodes).catch(fail);
+      };
+      if (dest.into) {
+        setCollapsed((prev) => {
+          const next = new Set(prev);
+          next.delete(dest.path);
+          return next;
+        });
+        api.flowMove(src, dest.path).then(done).catch(fail);
+      } else {
+        api.flowReorder(src, dest.path, dest.before).then(done).catch(fail);
+      }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", finish);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", finish);
+    };
+  }, []);
+
   const openEditor = async (file: string) => {
     try {
       const doc = await api.flowRead(file);
@@ -171,14 +303,7 @@ export function FlowPanel() {
 
   const save = async () => {
     if (!editor) return;
-    const doc: FlowDoc = {
-      schemaVersion: "1",
-      name: editor.name.trim() || "Untitled flow",
-      kind: "flow",
-      steps: editor.steps.map((s) =>
-        s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
-      ),
-    };
+    const doc = flowDocOf(editor);
     setSaving(true);
     try {
       const saved = await api.flowSave(editor.fileName, doc, editor.fileName ? null : editor.folder);
@@ -210,26 +335,41 @@ export function FlowPanel() {
     }
   };
 
-  const exportFlow = async () => {
-    if (!editor) return;
-    const doc: FlowDoc = {
-      schemaVersion: "1",
-      name: editor.name.trim() || "Untitled flow",
-      kind: "flow",
-      steps: editor.steps.map((s) =>
-        s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
-      ),
-    };
+  const writeExport = async (doc: FlowDoc) => {
     const dest = await saveFileDialog({
       title: "Export flow",
       defaultPath: `${doc.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "flow"}.yaml`,
       filters: [{ name: "Flow (YAML)", extensions: ["yaml"] }],
     });
     if (!dest) return;
+    const yaml = await api.flowToYaml(doc);
+    await api.saveResponse(dest, btoa(unescape(encodeURIComponent(yaml))));
+    toast("Flow exported", "success");
+  };
+
+  const exportFlow = async () => {
+    if (!editor) return;
     try {
-      const yaml = await api.flowToYaml(doc);
-      await api.saveResponse(dest, btoa(unescape(encodeURIComponent(yaml))));
-      toast("Flow exported", "success");
+      await writeExport(flowDocOf(editor));
+    } catch (e) {
+      toast(String(e), "error");
+    }
+  };
+
+  const exportNode = async (path: string) => {
+    try {
+      await writeExport(await api.flowRead(path));
+    } catch (e) {
+      toast(String(e), "error");
+    }
+  };
+
+  const duplicateNode = async (path: string) => {
+    try {
+      const copy = await api.flowDuplicate(path);
+      setSelected(copy);
+      refresh();
+      toast("Flow duplicated", "success");
     } catch (e) {
       toast(String(e), "error");
     }
@@ -280,15 +420,14 @@ export function FlowPanel() {
     });
   };
 
-  const run = async () => {
-    if (!editor || editor.steps.length === 0 || running) return;
-    const steps = editor.steps;
-    const title = editor.name.trim() || "Untitled flow";
+  const runSteps = async (title: string, steps: Step[], path: string | null) => {
+    if (steps.length === 0 || running) return;
     let live: Record<string, StepResult> = {};
     const publish = (runningNow: boolean, results: Record<string, StepResult>) =>
       useKeel.getState().setFlowRun({ name: title, running: runningNow, steps, results });
     useKeel.getState().openFlow();
     setRunning(true);
+    setRunningPath(path);
     publish(true, live);
     for (const step of steps) {
       live = { ...live, [step.id]: { status: "running" } };
@@ -320,7 +459,34 @@ export function FlowPanel() {
       }
     }
     setRunning(false);
+    setRunningPath(null);
     publish(false, live);
+  };
+
+  const run = () => {
+    if (!editor) return;
+    void runSteps(editor.name.trim() || "Untitled flow", editor.steps, editor.fileName);
+  };
+
+  const runFlow = async (path: string, fallbackName: string) => {
+    if (running) return;
+    try {
+      const doc = await api.flowRead(path);
+      const steps = doc.steps.map((p) => lookup(requests, p));
+      if (steps.length === 0) {
+        toast("Flow has no steps", "error");
+        return;
+      }
+      await runSteps(doc.name || fallbackName, steps, path);
+    } catch (e) {
+      toast(String(e), "error");
+    }
+  };
+
+  const runMenu = (fn: (node: FlowTreeNode) => void | Promise<void>) => {
+    const node = menu?.node;
+    setMenu(null);
+    if (node) void fn(node);
   };
 
   const filter = query.trim().toLowerCase();
@@ -343,17 +509,33 @@ export function FlowPanel() {
     return prune(nodes);
   }, [nodes, filter]);
 
-  const renderNode = (node: FlowTreeNode, depth: number) => {
+  const renderNode = (node: FlowTreeNode, depth: number): React.ReactNode => {
     const isFolder = node.kind === "folder";
     const open = filter ? true : !collapsed.has(node.path);
     const active = selected === node.path;
+    const isDrop = dropTarget === node.path;
     return (
       <div key={node.path}>
         <div
           role="treeitem"
           title={node.path}
+          data-flow-path={node.path}
+          data-flow-kind={node.kind}
           style={{ paddingLeft: 8 + depth * 12 }}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            dragRef.current = {
+              path: node.path,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+          }}
           onClick={() => {
+            if (suppressClick.current) {
+              suppressClick.current = false;
+              return;
+            }
             if (isFolder) {
               setCollapsed((prev) => {
                 const next = new Set(prev);
@@ -372,6 +554,10 @@ export function FlowPanel() {
           className={cn(
             "h-7 pr-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none",
             active ? "bg-accent-soft text-fg-0" : "text-fg-1 hover:bg-bg-hover",
+            isDrop && dropInto && "ring-1 ring-line-focus bg-accent-soft",
+            isDrop && !dropInto && dropBefore && "border-t-2 border-t-accent",
+            isDrop && !dropInto && !dropBefore && "border-b-2 border-b-accent",
+            draggingPath === node.path && "opacity-50",
           )}
         >
           {isFolder ? (
@@ -391,7 +577,27 @@ export function FlowPanel() {
             <>
               <span className="w-3 shrink-0" />
               <Workflow size={13} className="shrink-0 text-fg-2" />
-              <span className="truncate">{node.name}</span>
+              <span className="min-w-0 flex-1 truncate">{node.name}</span>
+              <IconButton
+                title="Run flow"
+                aria-label={`Run ${node.name}`}
+                className={cn(
+                  "h-5 w-5 shrink-0",
+                  runningPath === node.path ? "text-accent" : "text-fg-2",
+                )}
+                disabled={running}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void runFlow(node.path, node.name);
+                }}
+              >
+                {runningPath === node.path ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Play size={11} />
+                )}
+              </IconButton>
             </>
           )}
         </div>
@@ -502,59 +708,29 @@ export function FlowPanel() {
         >
           {menu.node.kind === "folder" ? (
             <>
-              <ContextItem
-                label="New flow…"
-                onClick={() => {
-                  const parent = menu.node.path;
-                  setMenu(null);
-                  startCreate(parent);
-                }}
-              />
+              <ContextItem label="New flow…" onClick={() => runMenu((n) => startCreate(n.path))} />
               <ContextItem
                 label="New folder…"
-                onClick={() => {
-                  setFolderName("");
-                  setCreateFolder(menu.node.path);
-                  setMenu(null);
-                }}
+                onClick={() =>
+                  runMenu((n) => {
+                    setFolderName("");
+                    setCreateFolder(n.path);
+                  })
+                }
               />
               <ContextItem
                 label="Import flow…"
-                onClick={() => {
-                  const parent = menu.node.path;
-                  setMenu(null);
-                  void importFlow(parent);
-                }}
+                onClick={() => runMenu((n) => importFlow(n.path))}
               />
-              <ContextItem
-                label="Delete"
-                danger
-                onClick={() => {
-                  const path = menu.node.path;
-                  setMenu(null);
-                  void removeNode(path);
-                }}
-              />
+              <ContextItem label="Delete" danger onClick={() => runMenu((n) => removeNode(n.path))} />
             </>
           ) : (
             <>
-              <ContextItem
-                label="Open"
-                onClick={() => {
-                  const path = menu.node.path;
-                  setMenu(null);
-                  void openEditor(path);
-                }}
-              />
-              <ContextItem
-                label="Delete"
-                danger
-                onClick={() => {
-                  const path = menu.node.path;
-                  setMenu(null);
-                  void removeNode(path);
-                }}
-              />
+              <ContextItem label="Run" onClick={() => runMenu((n) => runFlow(n.path, n.name))} />
+              <ContextItem label="Edit" onClick={() => runMenu((n) => openEditor(n.path))} />
+              <ContextItem label="Duplicate" onClick={() => runMenu((n) => duplicateNode(n.path))} />
+              <ContextItem label="Export…" onClick={() => runMenu((n) => exportNode(n.path))} />
+              <ContextItem label="Delete" danger onClick={() => runMenu((n) => removeNode(n.path))} />
             </>
           )}
         </div>

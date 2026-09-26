@@ -57,7 +57,7 @@ Then open `examples/demo-workspace`. `auth/login.yaml` is set up to chain into a
 
 ```bash
 npm run build:app            # bundles land in src-tauri/target/release/bundle/
-cd src-tauri && cargo test
+cd src-tauri && cargo test --features cli
 ```
 
 The Tauri CLI looks for `src-tauri/` in the working directory. While developing, the CLI binary is `src-tauri/target/debug/keel-cli`.
@@ -65,7 +65,7 @@ The Tauri CLI looks for `src-tauri/` in the working directory. While developing,
 ## Command line
 
 ```bash
-cd src-tauri && cargo build --release --bin keel-cli
+cd src-tauri && cargo build --release --bin keel-cli --features cli
 target/release/keel-cli list
 target/release/keel-cli run auth/login.yaml --env local
 target/release/keel-cli run users/ -r --bail --output report.json --format json

@@ -70,7 +70,7 @@ jobs:
 
       - name: Build keel CLI
         working-directory: src-tauri
-        run: cargo build --release --bin keel-cli --target ${{ matrix.target }}
+        run: cargo build --release --bin keel-cli --features cli --target ${{ matrix.target }}
 
       - name: Stage release assets
         shell: bash
@@ -90,30 +90,30 @@ jobs:
           fi
           ls -lh dist
 
-      - name: Create draft release
-        if: matrix.target == 'aarch64-apple-darwin'
+      - name: Upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           prerelease=()
           if [[ "$tag" == *-rc.* ]]; then
             prerelease=(--prerelease)
           fi
-          gh release view "$tag" >/dev/null 2>&1 || \
-            gh release create "$tag" \
+          # GITHUB_ENV is per job, so every matrix leg must resolve the tag
+          # and create the draft itself. Concurrent creates race; retry.
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              break
+            fi
+            if gh release create "$tag" \
               --draft \
               "${prerelease[@]}" \
               --title "Keel $tag" \
-              --notes "See the assets to download and install this version."
-          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-
-      - name: Upload assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for i in 1 2 3 4 5 6; do
-            gh release view "$RELEASE_TAG" >/dev/null 2>&1 && break
+              --notes "See the assets to download and install this version."; then
+              break
+            fi
             sleep 10
           done
-          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release view "$tag"
+          gh release upload "$tag" dist/* --clobber

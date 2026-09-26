@@ -1,0 +1,10 @@
+schemaVersion: "1"
+name: User lifecycle
+kind: flow
+steps:
+  - auth/login.yaml
+  - users/create-user.yaml
+  - users/get-user.yaml
+  - users/list-users.yaml
+  - path: users/delete-user.yaml
+    onFailure: continue

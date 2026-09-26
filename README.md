@@ -14,6 +14,13 @@ A desktop API client. The collection is a folder of YAML files in a Git reposito
 
 Open a folder. Each request is one YAML file. Edit it, send it, write a test, commit.
 
+<p align="center">
+  <img src="examples/screenshots/request.png" alt="Editing and sending a request" width="720" />
+</p>
+<p align="center">
+  <img src="examples/screenshots/flow.png" alt="A flow that runs the example requests in order" width="720" />
+</p>
+
 ## Features
 
 **Requests.** Methods, query params, headers, and eight body types including GraphQL and file uploads. Redirects, timeouts, proxies, a custom CA, client certificates, and a cookie jar.

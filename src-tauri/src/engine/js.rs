@@ -798,6 +798,24 @@ mod tests {
     }
 
     #[test]
+    fn postman_response_body_global() {
+        let post = post_cell();
+        run_str(
+            r#"
+            const response = JSON.parse(responseBody);
+            pm.test("Should have login flow id", function () {
+                pm.expect(response).to.have.property("id");
+            });
+            pm.environment.set("FLOW", response.id);
+            "#,
+            &post,
+        );
+        let h = post.borrow();
+        assert!(h.tests.iter().all(|t| t.passed), "{:?}", h.tests);
+        assert_eq!(h.transient.get("FLOW").map(String::as_str), Some("7"));
+    }
+
+    #[test]
     fn secrets_are_not_readable() {
         // Secret names never appear in the scope snapshot the JS host sees.
         let cell = Rc::new(RefCell::new(pre_host()));

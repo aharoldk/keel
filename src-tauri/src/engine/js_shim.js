@@ -462,6 +462,20 @@
     setNextRequest: (name) => keel.setNextRequest(name),
   };
 
+  /* Postman test-script globals (`JSON.parse(responseBody)`, etc.). */
+  Object.defineProperty(globalThis, "responseBody", {
+    get: () => res.getBody() ?? "",
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "responseCode", {
+    get: () => ({ code: res.getStatus(), name: res.getStatusText(), detail: res.getStatusText() }),
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "responseTime", {
+    get: () => res.getResponseTime(),
+    configurable: true,
+  });
+
   /* ---------------- install ---------------- */
   globalThis.keel = keel;
   globalThis.bru = keel;

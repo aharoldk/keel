@@ -670,6 +670,12 @@ mod tests {
         let root = dir.path();
         write(&root.join("a.yaml"), "base\n");
         init(root).expect("init");
+        // System git refuses to merge without an identity. libgit2 commits
+        // above do not, so CI runners (no global user.name) fail the merge
+        // before any conflict exists.
+        git_cli(root, &["config", "user.email", "keel@localhost"]).expect("email");
+        git_cli(root, &["config", "user.name", "keel"]).expect("name");
+        git_cli(root, &["config", "core.autocrlf", "false"]).expect("autocrlf");
         commit_all(root, "base");
         let base = git_cli(root, &["rev-parse", "--abbrev-ref", "HEAD"])
             .expect("base branch");
@@ -681,8 +687,11 @@ mod tests {
         git_cli(root, &["checkout", base]).expect("back");
         write(&root.join("a.yaml"), "base\nours\n");
         commit_all(root, "ours");
-        if git_cli(root, &["merge", "feature"]).is_ok() {
-            // No conflict was created; resolve must say so.
+        // `--no-commit` keeps the conflict in the index. A plain `git merge`
+        // can finish the commit when the runner's default strategy or
+        // autocrlf settings treat the line edit as already resolved.
+        let merged = git_cli(root, &["merge", "--no-commit", "feature"]);
+        if merged.is_ok() {
             let err = resolve(root, "a.yaml", "ours").expect_err("nothing conflicted");
             assert!(err.contains("not conflicted"), "{err}");
             return;

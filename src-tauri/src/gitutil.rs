@@ -582,7 +582,11 @@ mod tests {
         assert!(diff.contains("Get User v2"), "{diff}");
 
         let commits = log(root, 10).expect("log");
-        let commit_diff = diff_commit(root, &commits[1].oid).expect("commit diff");
+        let add_user = commits
+            .iter()
+            .find(|c| c.message == "add user")
+            .expect("add user commit");
+        let commit_diff = diff_commit(root, &add_user.oid).expect("commit diff");
         assert!(commit_diff.contains("get-user.yaml"), "{commit_diff}");
     }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCheck, FolderOpen } from "lucide-react";
+import { Check, FolderOpen } from "lucide-react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import type { AppSettings, ShortcutAction } from "@/api/types";
 import { Button, IconButton, Modal, Select, TextInput } from "@/components/ui";
@@ -49,7 +49,7 @@ function Checkbox({
           checked ? "border-accent bg-accent" : "border-line-0 bg-bg-2",
         )}
       >
-        {checked && <CheckCheck size={11} strokeWidth={2.5} className="text-accent-fg" />}
+        {checked && <Check size={11} strokeWidth={2.5} className="text-accent-fg" />}
       </span>
       {label}
     </button>

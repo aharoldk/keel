@@ -119,6 +119,7 @@ jobs:
           ls -lh dist
 
       - name: Upload assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

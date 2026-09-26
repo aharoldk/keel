@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -17,7 +17,6 @@ import type { SendResult } from "@/api/types";
 import { api } from "@/api/client";
 import { Button, EmptyState, IconButton, Spinner } from "@/components/ui";
 import { cn, formatBytes, formatMs, statusClass } from "@/utils";
-import CodeEditor from "@/features/request/CodeEditor";
 import PreviewPane, { isPreviewable } from "@/features/response/PreviewPane";
 import TimelinePane from "@/features/response/TimelinePane";
 
@@ -291,7 +290,41 @@ export default function ResponseViewer(props: {
   );
 }
 
-/* ---------- Body pane ---------- */
+ /* ---------- Body pane ---------- */
+
+const JSON_TOKEN =
+  /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b|\bnull\b)|([{}[\],:])|(\s+)/g;
+
+function JsonLine({ line }: { line: string }) {
+  if (line === "") return <> </>;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  JSON_TOKEN.lastIndex = 0;
+  while ((m = JSON_TOKEN.exec(line))) {
+    if (m.index > last) parts.push(line.slice(last, m.index));
+    const [full, key, str, num, kw, punct] = m;
+    const color = key
+      ? "text-[var(--method-get)]"
+      : str
+        ? "text-[var(--method-post)]"
+        : num
+          ? "text-[var(--method-put)]"
+          : kw
+            ? "text-[var(--method-patch)]"
+            : punct
+              ? "text-fg-2"
+              : "";
+    parts.push(
+      <span key={m.index} className={color}>
+        {full}
+      </span>,
+    );
+    last = m.index + full.length;
+  }
+  if (last < line.length) parts.push(line.slice(last));
+  return <>{parts}</>;
+}
 
 function BodyPane({
   result,
@@ -309,18 +342,18 @@ function BodyPane({
   const bodyText = result.bodyText;
 
   let parsedJson: string | null = null;
-  let jsonFailed = false;
   if (bodyText != null && bodyText.trim() !== "") {
     try {
       parsedJson = JSON.stringify(JSON.parse(bodyText), null, 2);
     } catch {
-      jsonFailed = (result.contentType ?? "").includes("json");
+      parsedJson = null;
     }
   }
 
   const showJson = pretty && parsedJson != null;
-  const showJsonRaw = pretty && parsedJson == null && jsonFailed;
   const isText = bodyText != null;
+  const text = showJson ? (parsedJson ?? "") : (bodyText ?? "");
+  const lines = text.split("\n");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -356,22 +389,20 @@ function BodyPane({
       </div>
 
       {isText ? (
-        pretty ? (
-          <div className="flex-1 min-h-0 overflow-hidden bg-bg-1">
-            <CodeEditor
-              value={showJson ? (parsedJson ?? "") : (bodyText ?? "")}
-              language={showJson || showJsonRaw ? "json" : "text"}
-              readOnly
-              lineNumbers
-              appearance="editor"
-              height="100%"
-            />
-          </div>
-        ) : (
-          <pre className="flex-1 min-h-0 overflow-auto font-mono text-xs whitespace-pre-wrap break-all p-2 m-0">
-            {bodyText}
-          </pre>
-        )
+        <div className="flex-1 min-h-0 overflow-auto bg-bg-1 font-mono text-xs leading-6 select-text">
+          {lines.map((line, i) => (
+            <div key={i} className="flex">
+              {pretty && (
+                <span className="sticky left-0 w-10 shrink-0 bg-bg-1 pr-3 text-right text-fg-2 select-none">
+                  {i + 1}
+                </span>
+              )}
+              <span className="whitespace-pre-wrap break-all pr-3 text-fg-0">
+                {showJson ? <JsonLine line={line} /> : line || " "}
+              </span>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2">
           <div className="text-xs text-fg-2">

@@ -36,6 +36,7 @@ export function SplitPane({
     const onUp = () => {
       dragging.current = false;
       document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -59,9 +60,12 @@ export function SplitPane({
         {top}
       </div>
       <div
-        onMouseDown={() => {
+        onMouseDown={(e) => {
+          e.preventDefault();
           dragging.current = true;
           document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
+          document.body.style.userSelect = "none";
+          window.getSelection()?.removeAllRanges();
         }}
         className={cn(
           "bg-line-0 hover:bg-line-focus relative group shrink-0",

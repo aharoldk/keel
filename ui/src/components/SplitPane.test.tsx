@@ -17,8 +17,10 @@ describe("SplitPane", () => {
     fireEvent.mouseMove(window, { clientY: 300 });
     expect(screen.getByText("top").parentElement?.style.height).toBe("300px");
     expect(document.body.style.cursor).toBe("row-resize");
+    expect(document.body.style.userSelect).toBe("none");
     fireEvent.mouseUp(window);
     expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.userSelect).toBe("");
   });
 
   it("clamps the size to min and max", () => {

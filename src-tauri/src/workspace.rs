@@ -36,17 +36,44 @@ pub fn safe_join(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|e| format!("workspace root: {e}"))?;
-    let canonical = if joined.exists() {
-        joined
-            .canonicalize()
-            .map_err(|e| format!("path `{relative}`: {e}"))?
-    } else {
-        joined.clone()
-    };
+    let canonical = canonical_under(&canonical_root, &joined, relative)?;
     if !canonical.starts_with(&canonical_root) {
         return Err(format!("path `{relative}` escapes the workspace"));
     }
     Ok(joined)
+}
+
+/// Resolves `joined` the same way as `canonical_root`, including the existing
+/// prefix of a path that has not been created yet. Comparing a raw temp path
+/// (`/var/...`) with its canonical form (`/private/var/...`) falsely reports
+/// an escape on macOS.
+fn canonical_under(canonical_root: &Path, joined: &Path, relative: &str) -> Result<PathBuf, String> {
+    if joined.exists() {
+        return joined
+            .canonicalize()
+            .map_err(|e| format!("path `{relative}`: {e}"));
+    }
+    let mut missing = Vec::new();
+    let mut cursor = joined.to_path_buf();
+    while !cursor.exists() {
+        if let Some(name) = cursor.file_name() {
+            missing.push(name.to_os_string());
+        }
+        if !cursor.pop() {
+            break;
+        }
+    }
+    let mut resolved = if cursor.exists() {
+        cursor
+            .canonicalize()
+            .map_err(|e| format!("path `{relative}`: {e}"))?
+    } else {
+        canonical_root.to_path_buf()
+    };
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
 }
 
 pub fn slugify(name: &str) -> String {

@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -28,6 +33,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
@@ -88,23 +95,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           prerelease=()
-          if [[ "${{ github.ref_name }}" == *-rc.* ]]; then
+          if [[ "$tag" == *-rc.* ]]; then
             prerelease=(--prerelease)
           fi
-          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
-            gh release create "${{ github.ref_name }}" \
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" \
               --draft \
               "${prerelease[@]}" \
-              --title "Keel ${{ github.ref_name }}" \
+              --title "Keel $tag" \
               --notes "See the assets to download and install this version."
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for i in 1 2 3 4 5 6; do
-            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 && break
+            gh release view "$RELEASE_TAG" >/dev/null 2>&1 && break
             sleep 10
           done
-          gh release upload "${{ github.ref_name }}" dist/* --clobber
+          gh release upload "$RELEASE_TAG" dist/* --clobber

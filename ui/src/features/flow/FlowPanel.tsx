@@ -284,7 +284,7 @@ export function FlowPanel() {
           />
         ) : (
           steps.map((step, i) => (
-              <div key={step.id}>
+              <div key={step.id} className={i === 0 ? "pt-1.5" : undefined}>
                 {i > 0 && (
                   <div className="flex justify-center text-fg-2">
                     <ArrowDown size={12} />

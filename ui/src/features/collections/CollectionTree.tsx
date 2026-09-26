@@ -88,7 +88,15 @@ export function CollectionTree() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [dropBefore, setDropBefore] = useState(true);
   const [dropInto, setDropInto] = useState(false);
-  const dragPath = useRef<string | null>(null);
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const dragRef = useRef<{
+    path: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  const dropRef = useRef<{ path: string; before: boolean; into: boolean } | null>(null);
 
   const folders = useMemo(() => {
     const out: TreeNode[] = [];
@@ -463,21 +471,104 @@ export function CollectionTree() {
   const canDropOn = (src: string, dest: string) =>
     src !== dest && !dest.startsWith(`${src}/`) && parentOf(src) !== dest;
 
-  const dropPlace = (
-    e: React.DragEvent,
+  const placeAt = (
     src: string | null,
     node: TreeNode,
     isFolder: boolean,
+    el: HTMLElement,
+    clientY: number,
   ): { before: boolean; into: boolean } | null => {
     if (!src || src === node.path || node.path.startsWith(`${src}/`)) return null;
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
     const height = rect.height || 28;
-    const clientY = e.clientY || (e.nativeEvent as MouseEvent).clientY || 0;
     const y = (clientY - rect.top) / height;
     const into = isFolder && y > 0.25 && y < 0.75;
     if (into && !canDropOn(src, node.path)) return null;
     return { before: y < 0.5, into };
   };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) return;
+        drag.moved = true;
+        setDraggingPath(drag.path);
+      }
+      let under: Element | null = null;
+      try {
+        under = document.elementFromPoint(e.clientX, e.clientY);
+      } catch {
+        under = null;
+      }
+      const hit = under?.closest("[data-tree-path]");
+      if (!(hit instanceof HTMLElement)) {
+        dropRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      const path = hit.dataset.treePath;
+      if (!path) return;
+      const find = (nodes: TreeNode[]): TreeNode | null => {
+        for (const n of nodes) {
+          if (n.path === path) return n;
+          const found = n.children ? find(n.children) : null;
+          if (found) return found;
+        }
+        return null;
+      };
+      const node = find(useKeel.getState().tree);
+      if (!node) {
+        dropRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      const place = placeAt(drag.path, node, node.kind !== "request", hit, e.clientY);
+      if (!place) {
+        dropRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      dropRef.current = { path: node.path, before: place.before, into: place.into };
+      setDropTarget(node.path);
+      setDropBefore(place.before);
+      setDropInto(place.into);
+    };
+    const finish = () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      dragRef.current = null;
+      const dest = dropRef.current;
+      dropRef.current = null;
+      if (!drag.moved) {
+        setDraggingPath(null);
+        setDropTarget(null);
+        return;
+      }
+      suppressClick.current = true;
+      const src = drag.path;
+      setDraggingPath(null);
+      setDropTarget(null);
+      if (!dest || dest.path === src || dest.path.startsWith(`${src}/`)) return;
+      if (dest.into) {
+        setCollapsed((prev) => {
+          const next = new Set(prev);
+          next.delete(dest.path);
+          return next;
+        });
+        void moveNode(src, dest.path);
+      } else {
+        void reorderNode(src, dest.path, dest.before);
+      }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", finish);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", finish);
+    };
+  }, [moveNode, reorderNode]);
 
   const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
     const isFolder = node.kind !== "request";
@@ -489,54 +580,25 @@ export function CollectionTree() {
         <div
           role="treeitem"
           title={node.path}
-          draggable={renaming?.path !== node.path}
+          data-tree-path={node.path}
           style={{ paddingLeft: 8 + depth * 12 }}
-          onDragStart={(e) => {
-            e.stopPropagation();
-            dragPath.current = node.path;
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", node.path);
+          onMouseDown={(e) => {
+            if (e.button !== 0 || renaming?.path === node.path) return;
+            dragRef.current = {
+              path: node.path,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
           }}
-          onDragEnd={() => {
-            dragPath.current = null;
-            setDropTarget(null);
-          }}
-          onDragOver={(e) => {
-            const src = dragPath.current;
-            const place = dropPlace(e, src, node, isFolder);
-            if (!place) return;
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = "move";
-            if (dropTarget !== node.path || dropBefore !== place.before || dropInto !== place.into) {
-              setDropTarget(node.path);
-              setDropBefore(place.before);
-              setDropInto(place.into);
+          onClick={() => {
+            if (suppressClick.current) {
+              suppressClick.current = false;
+              return;
             }
+            if (isFolder) toggleFolder(node.path);
+            else openRequest(node.path);
           }}
-          onDragLeave={() => {
-            if (dropTarget === node.path) setDropTarget(null);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const src = e.dataTransfer.getData("text/plain") || dragPath.current;
-            dragPath.current = null;
-            setDropTarget(null);
-            const place = dropPlace(e, src, node, isFolder);
-            if (!place || !src) return;
-            if (place.into) {
-              setCollapsed((prev) => {
-                const next = new Set(prev);
-                next.delete(node.path);
-                return next;
-              });
-              void moveNode(src, node.path);
-            } else {
-              void reorderNode(src, node.path, place.before);
-            }
-          }}
-          onClick={() => (isFolder ? toggleFolder(node.path) : openRequest(node.path))}
           onContextMenu={(e) => openMenu(e, node)}
           className={cn(
             "h-7 pr-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none",
@@ -544,6 +606,7 @@ export function CollectionTree() {
             isDrop && dropInto && "ring-1 ring-line-focus bg-accent-soft",
             isDrop && !dropInto && dropBefore && "border-t-2 border-t-accent",
             isDrop && !dropInto && !dropBefore && "border-b-2 border-b-accent",
+            draggingPath === node.path && "opacity-50",
           )}
         >
           {isFolder ? (
@@ -719,22 +782,7 @@ export function CollectionTree() {
         </div>
       </div>
 
-      <div
-        className="flex-1 min-h-0 overflow-y-auto p-1"
-        onDragOver={(e) => {
-          if (!dragPath.current) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        }}
-        onDrop={(e) => {
-          const src = e.dataTransfer.getData("text/plain") || dragPath.current;
-          dragPath.current = null;
-          setDropTarget(null);
-          if (!src || parentOf(src) === "") return;
-          e.preventDefault();
-          void moveNode(src, "");
-        }}
-      >
+      <div className="flex-1 min-h-0 overflow-y-auto p-1">
         {tree.length === 0 ? (
           <EmptyState
             icon={<FolderOpen size={24} />}

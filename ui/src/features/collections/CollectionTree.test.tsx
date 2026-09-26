@@ -23,6 +23,16 @@ const treeWithFolder = [
   ...tree,
 ];
 
+function dragOnto(source: Element, target: Element, clientY: number) {
+  vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+    top: 0, height: 28, bottom: 28, left: 0, right: 100, width: 100, x: 0, y: 0, toJSON() {},
+  });
+  document.elementFromPoint = () => target as HTMLElement;
+  fireEvent.mouseDown(source, { clientX: 10, clientY: 0, button: 0 });
+  fireEvent.mouseMove(document, { clientX: 14, clientY });
+  fireEvent.mouseUp(document, { clientX: 14, clientY });
+}
+
 describe("CollectionTree drag and drop", () => {
   beforeEach(() => {
     installDefaultResponses();
@@ -34,21 +44,7 @@ describe("CollectionTree drag and drop", () => {
     render(<CollectionTree />);
     const request = screen.getByText("Get Flow ID").closest("[role=treeitem]")!;
     const folder = screen.getByText("users").closest("[role=treeitem]")!;
-    const store = new Map<string, string>();
-    const data = {
-      effectAllowed: "none",
-      dropEffect: "none",
-      setData: (type: string, value: string) => store.set(type, value),
-      getData: (type: string) => store.get(type) ?? "",
-    };
-    vi.spyOn(folder, "getBoundingClientRect").mockReturnValue({
-      top: 0, height: 28, bottom: 28, left: 0, right: 100, width: 100, x: 0, y: 0, toJSON() {},
-    });
-    fireEvent.dragStart(request, { dataTransfer: data });
-    fireEvent.dragOver(folder, { dataTransfer: data });
-    (folder as HTMLElement).dispatchEvent(
-      Object.assign(new Event("drop", { bubbles: true }), { clientY: 14, dataTransfer: data }),
-    );
+    dragOnto(request, folder, 14);
 
     await waitFor(() =>
       expect(
@@ -68,18 +64,7 @@ describe("CollectionTree drag and drop", () => {
     render(<CollectionTree />);
     const source = screen.getByText("List").closest("[role=treeitem]")!;
     const target = screen.getByText("Get Flow ID").closest("[role=treeitem]")!;
-    const store = new Map<string, string>();
-    const data = {
-      effectAllowed: "none",
-      dropEffect: "none",
-      setData: (type: string, value: string) => store.set(type, value),
-      getData: (type: string) => store.get(type) ?? "",
-    };
-    vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
-      top: 0, height: 28, bottom: 28, left: 0, right: 100, width: 100, x: 0, y: 0, toJSON() {},
-    });
-    fireEvent.dragStart(source, { dataTransfer: data });
-    fireEvent.drop(target, { dataTransfer: data, clientY: 2 });
+    dragOnto(source, target, 2);
 
     await waitFor(() =>
       expect(

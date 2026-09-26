@@ -274,11 +274,19 @@
     remember(name, value);
     keel.setVar(name, value);
   };
+  const writeEnvVar = (name, value) => {
+    remember(name, value);
+    keel.setEnvVar(name, value);
+  };
   const forget = (name) => {
     delete pmLocals[name];
     keel.deleteVar(name);
   };
-  const varBag = (collection) => ({
+  const forgetEnvVar = (name) => {
+    delete pmLocals[name];
+    keel.deleteEnvVar(name);
+  };
+  const varBag = (collection, env) => ({
     get: (name) => {
       if (collection) {
         if (Object.prototype.hasOwnProperty.call(collectionLocals, name)) return collectionLocals[name];
@@ -288,11 +296,13 @@
     },
     set: (name, value) => {
       if (collection) collectionLocals[name] = value;
-      writeVar(name, value);
+      if (env) writeEnvVar(name, value);
+      else writeVar(name, value);
     },
     unset: (name) => {
       if (collection) delete collectionLocals[name];
-      forget(name);
+      if (env) forgetEnvVar(name);
+      else forget(name);
     },
     has: (name) => {
       const v = collection
@@ -303,7 +313,7 @@
       return v !== null && v !== undefined;
     },
   });
-  const pmVariables = varBag(false);
+  const pmVariables = varBag(false, false);
   pmVariables.replaceIn = (value) => keel.interpolate(value);
 
   const headerPair = (h) => {
@@ -435,10 +445,10 @@
   const pm = {
     test,
     expect,
-    environment: varBag(false),
-    globals: varBag(false),
+    environment: varBag(false, true),
+    globals: varBag(false, false),
     variables: pmVariables,
-    collectionVariables: varBag(true),
+    collectionVariables: varBag(true, false),
     request: pmRequest,
     get response() {
       return pmResponse;
@@ -453,9 +463,9 @@
   };
 
   const postman = {
-    setEnvironmentVariable: (name, value) => writeVar(name, value),
+    setEnvironmentVariable: (name, value) => writeEnvVar(name, value),
     getEnvironmentVariable: (name) => recall(name),
-    clearEnvironmentVariable: (name) => forget(name),
+    clearEnvironmentVariable: (name) => forgetEnvVar(name),
     setGlobalVariable: (name, value) => writeVar(name, value),
     getGlobalVariable: (name) => recall(name),
     clearGlobalVariable: (name) => forget(name),

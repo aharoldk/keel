@@ -772,7 +772,9 @@ mod tests {
             let h = pre.borrow();
             assert!(h.req.headers.iter().any(|(k, v)| k == "X-Trace" && v == "pm"));
             assert_eq!(h.transient.get("token").map(String::as_str), Some("abc"));
+            assert_eq!(h.env_updates.get("token").and_then(|v| v.as_deref()), Some("abc"));
             assert_eq!(h.transient.get("col").map(String::as_str), Some("c2"));
+            assert!(h.env_updates.get("col").is_none());
             assert!(h.skip_request);
         }
 
@@ -795,6 +797,7 @@ mod tests {
         let h = post.borrow();
         assert!(h.tests.iter().all(|t| t.passed), "{:?}", h.tests);
         assert_eq!(h.transient.get("saved").map(String::as_str), Some("t"));
+        assert_eq!(h.env_updates.get("saved").and_then(|v| v.as_deref()), Some("t"));
     }
 
     #[test]
@@ -813,6 +816,7 @@ mod tests {
         let h = post.borrow();
         assert!(h.tests.iter().all(|t| t.passed), "{:?}", h.tests);
         assert_eq!(h.transient.get("FLOW").map(String::as_str), Some("7"));
+        assert_eq!(h.env_updates.get("FLOW").and_then(|v| v.as_deref()), Some("7"));
     }
 
     #[test]

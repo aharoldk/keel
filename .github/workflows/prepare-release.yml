@@ -8,7 +8,6 @@ on:
         required: true
         type: choice
         options:
-          - rc
           - patch
           - minor
           - major
@@ -35,94 +34,22 @@ jobs:
           base="${current%%-*}"
           IFS=. read -r major minor patch <<<"$base"
           case "$BUMP" in
-            major) major=$((major + 1)); minor=0; patch=0; next="$major.$minor.$patch" ;;
-            minor) minor=$((minor + 1)); patch=0; next="$major.$minor.$patch" ;;
-            patch) patch=$((patch + 1)); next="$major.$minor.$patch" ;;
-            rc)
-              if [[ "$current" == *-rc.* ]]; then
-                n="${current##*-rc.}"
-                next="$base-rc.$((n + 1))"
-              else
-                patch=$((patch + 1))
-                next="$major.$minor.$patch-rc.1"
-              fi
-              ;;
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            # An rc in the working tree means the candidate is ready: promote it
+            # to its base version instead of skipping past it.
+            patch) [[ "$current" == *-rc.* ]] || patch=$((patch + 1)) ;;
             *) echo "unknown bump: $BUMP" >&2; exit 1 ;;
           esac
+          next="$major.$minor.$patch"
           tag="v$next"
-          wix=""
-          if [[ "$next" == *-rc.* ]]; then
-            rc="${next##*-rc.}"
-            base="${next%%-rc.*}"
-            IFS=. read -r wmajor wminor wpatch <<<"$base"
-            if [[ "$wpatch" -eq 0 || "$rc" -gt 65535 ]]; then
-              echo "cannot map $next to an MSI version that stays below the stable release" >&2
-              exit 1
-            fi
-            wix="$wmajor.$wminor.$((wpatch - 1)).$rc"
-          fi
 
           if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "tag $tag already exists" >&2
             exit 1
           fi
 
-          jq --arg v "$next" '.version = $v' package.json > package.json.tmp
-          mv package.json.tmp package.json
-
-          jq --arg v "$next" '.version = $v' ui/package.json > ui/package.json.tmp
-          mv ui/package.json.tmp ui/package.json
-
-          jq --arg v "$next" --arg wix "$wix" '
-            .version = $v
-            | if $wix != "" then .bundle.windows.wix.version = $wix
-              else
-                del(.bundle.windows.wix.version)
-                | if .bundle.windows.wix == {} then del(.bundle.windows.wix) else . end
-                | if .bundle.windows == {} then del(.bundle.windows) else . end
-              end
-          ' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-
-          node -e '
-            const fs = require("fs");
-            const p = "package-lock.json";
-            const lock = JSON.parse(fs.readFileSync(p, "utf8"));
-            const v = process.argv[1];
-            lock.version = v;
-            if (lock.packages && lock.packages[""]) lock.packages[""].version = v;
-            fs.writeFileSync(p, JSON.stringify(lock, null, 2) + "\n");
-          ' "$next"
-
-          python3 - "$next" <<'PY'
-          import pathlib, sys
-          version = sys.argv[1]
-          path = pathlib.Path("src-tauri/Cargo.toml")
-          lines = path.read_text().splitlines(keepends=True)
-          for i, line in enumerate(lines):
-              if line.startswith("version = "):
-                  lines[i] = f'version = "{version}"\n'
-                  break
-          else:
-              sys.exit("version field not found in Cargo.toml")
-          path.write_text("".join(lines))
-          PY
-
-          python3 - "$next" <<'PY'
-          import pathlib, sys
-          version = sys.argv[1]
-          path = pathlib.Path("src-tauri/Cargo.lock")
-          lines = path.read_text().splitlines(keepends=True)
-          for i, line in enumerate(lines):
-              if line.strip() == 'name = "keel"':
-                  nxt = lines[i + 1]
-                  if nxt.startswith("version = "):
-                      lines[i + 1] = f'version = "{version}"\n'
-                      break
-          else:
-              sys.exit("keel package not found in Cargo.lock")
-          path.write_text("".join(lines))
-          PY
+          node .github/scripts/apply-version.mjs "$next"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

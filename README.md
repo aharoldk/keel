@@ -33,7 +33,7 @@ The on-disk format is parsed by a library, so it is not tied to this app. Secret
 ```bash
 cd app && npm install
 npm run install:all
-npm run dev:app
+npm run dev
 ```
 
 Then open `examples/demo-workspace`. `auth/login.yaml` is set up to chain into a token.

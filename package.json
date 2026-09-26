@@ -5,10 +5,8 @@
   "license": "MIT",
   "description": "Keel — a local-first, Git-native API client (Tauri desktop app)",
   "scripts": {
-    "dev:app": "tauri dev",
-    "build:app": "tauri build",
-    "dev:ui": "npm --prefix ui run dev",
-    "build:ui": "npm --prefix ui run build",
+    "dev": "tauri dev",
+    "build": "tauri build",
     "test": "npm --prefix ui test && cd src-tauri && cargo test",
     "install:all": "npm install && npm --prefix ui install"
   },

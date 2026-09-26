@@ -9,8 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "dev:app": "npm --prefix .. run dev:app",
-    "build:app": "npm --prefix .. run build:app",
+    "dev:app": "npm --prefix .. run dev",
+    "build:app": "npm --prefix .. run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },

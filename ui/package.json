@@ -1,7 +1,7 @@
 {
   "name": "keel-ui",
   "private": true,
-  "version": "0.1.2-rc.3",
+  "version": "0.1.2",
   "license": "MIT",
   "type": "module",
   "scripts": {

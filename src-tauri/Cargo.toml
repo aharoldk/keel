@@ -1,6 +1,6 @@
 [package]
 name = "keel"
-version = "0.1.2-rc.3"
+version = "0.1.2"
 description = "Keel — a local-first, Git-native API client"
 authors = ["Keel contributors"]
 license = "MIT"

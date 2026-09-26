@@ -1,9 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Welcome } from "./Welcome";
 import { installDefaultResponses, invokeMock, openDialogMock, resetStore } from "@/test/helpers";
 import { useKeel } from "@/state/store";
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    minimize: vi.fn(),
+    toggleMaximize: vi.fn(),
+    close: vi.fn(),
+    startDragging: vi.fn(),
+  }),
+}));
 
 describe("Welcome", () => {
   beforeEach(() => {

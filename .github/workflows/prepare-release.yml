@@ -1,0 +1,106 @@
+name: prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Bump version, commit, and tag
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          current=$(jq -r .version package.json)
+          IFS=. read -r major minor patch <<<"$current"
+          case "$BUMP" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "unknown bump: $BUMP" >&2; exit 1 ;;
+          esac
+          next="$major.$minor.$patch"
+          tag="v$next"
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "tag $tag already exists" >&2
+            exit 1
+          fi
+
+          jq --arg v "$next" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+
+          jq --arg v "$next" '.version = $v' ui/package.json > ui/package.json.tmp
+          mv ui/package.json.tmp ui/package.json
+
+          jq --arg v "$next" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
+          node -e '
+            const fs = require("fs");
+            const p = "package-lock.json";
+            const lock = JSON.parse(fs.readFileSync(p, "utf8"));
+            const v = process.argv[1];
+            lock.version = v;
+            if (lock.packages && lock.packages[""]) lock.packages[""].version = v;
+            fs.writeFileSync(p, JSON.stringify(lock, null, 2) + "\n");
+          ' "$next"
+
+          python3 - "$next" <<'PY'
+          import pathlib, sys
+          version = sys.argv[1]
+          path = pathlib.Path("src-tauri/Cargo.toml")
+          lines = path.read_text().splitlines(keepends=True)
+          for i, line in enumerate(lines):
+              if line.startswith("version = "):
+                  lines[i] = f'version = "{version}"\n'
+                  break
+          else:
+              sys.exit("version field not found in Cargo.toml")
+          path.write_text("".join(lines))
+          PY
+
+          python3 - "$next" <<'PY'
+          import pathlib, sys
+          version = sys.argv[1]
+          path = pathlib.Path("src-tauri/Cargo.lock")
+          lines = path.read_text().splitlines(keepends=True)
+          for i, line in enumerate(lines):
+              if line.strip() == 'name = "keel"':
+                  nxt = lines[i + 1]
+                  if nxt.startswith("version = "):
+                      lines[i + 1] = f'version = "{version}"\n'
+                      break
+          else:
+              sys.exit("keel package not found in Cargo.lock")
+          path.write_text("".join(lines))
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json ui/package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "Release $tag"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin HEAD:main
+          git push origin "$tag"
+
+          echo "Tagged $tag. The release workflow builds it."

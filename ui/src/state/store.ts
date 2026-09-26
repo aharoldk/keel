@@ -19,7 +19,7 @@ import type {
 export type SidebarPanel = "collections" | "environments" | "flow" | "history" | "git";
 
 /** Panel shown in the main content area instead of the request editor. */
-export type ContentPanel = { kind: "flow" };
+export type ContentPanel = { kind: "flow" } | { kind: "dashboard" };
 
 export type EditorTab =
   | { kind: "request"; path: string }
@@ -126,6 +126,7 @@ interface KeelState {
   createWorkspace: (path: string, name: string) => Promise<void>;
   importPostman: (sourcePath: string, folder: string) => Promise<string[]>;
   closeWorkspace: () => Promise<void>;
+  removeRecent: (path: string) => Promise<void>;
   refreshAll: () => Promise<void>;
   refreshTree: () => Promise<void>;
   refreshGit: () => Promise<void>;
@@ -372,6 +373,13 @@ export const useKeel = create<KeelState>((set, get) => ({
     } finally {
       set({ workspace: null, tree: [], envs: [], activeEnv: null, git: null, tabs: [], activePath: null, editorTabs: [], activeEditor: null, contentPanel: null });
     }
+  },
+
+  async removeRecent(path: string) {
+    const recent = (get().settings.recentWorkspaces ?? []).filter((p) => p !== path);
+    const last = get().settings.lastWorkspace === path ? null : get().settings.lastWorkspace;
+    await get().saveSettings({ recentWorkspaces: recent, lastWorkspace: last });
+    if (get().workspace?.root === path) await get().closeWorkspace();
   },
 
   async refreshAll() {

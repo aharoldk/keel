@@ -59,6 +59,7 @@ pub fn run() {
             commands::workspace_init,
             commands::workspace_close,
             commands::workspace_info,
+            commands::workspace_peek,
             commands::workspace_load_tree,
             commands::folder_create,
             commands::request_create,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Globe, Search, Settings, Sparkles } from "lucide-react";
+import { ChevronDown, Globe, LayoutDashboard, Search, Settings, Sparkles } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { comboFor, formatCombo } from "@/shortcuts";
 import { cn } from "@/utils";
@@ -16,6 +16,9 @@ export function Toolbar() {
   const aiOpen = useKeel((s) => s.aiOpen);
   const setAiOpen = useKeel((s) => s.setAiOpen);
   const setSidebarPanel = useKeel((s) => s.setSidebarPanel);
+  const contentPanel = useKeel((s) => s.contentPanel);
+  const setContentPanel = useKeel((s) => s.setContentPanel);
+  const dashboardOpen = contentPanel?.kind === "dashboard";
   const shortcuts = useKeel((s) => s.settings.shortcuts);
 
   const [envOpen, setEnvOpen] = useState(false);
@@ -62,23 +65,40 @@ export function Toolbar() {
           <img src="/logo-light.png" alt="" className="keel-logo keel-logo-on-light h-5 w-5 rounded object-contain" />
           <span className="font-semibold text-sm text-fg-0">Keel</span>
         </div>
-        {workspace && <WorkspaceMenu />}
+        {workspace && (
+          <>
+            {!dashboardOpen && (
+              <button
+                type="button"
+                title="Dashboard"
+                aria-label="Dashboard"
+                onClick={() => setContentPanel({ kind: "dashboard" })}
+                className="h-7 w-7 shrink-0 rounded flex items-center justify-center text-fg-1 hover:text-fg-0 hover:bg-bg-hover focus-visible:ring-1 ring-accent/60 outline-none"
+              >
+                <LayoutDashboard size={14} />
+              </button>
+            )}
+            {!dashboardOpen && <WorkspaceMenu />}
+          </>
+        )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setPaletteOpen(true)}
-        className="w-72 h-7 rounded bg-bg-2 border border-line-0 text-fg-2 flex items-center gap-2 px-2 text-xs hover:border-line-1 hover:text-fg-1 focus-visible:ring-1 ring-accent/60 outline-none"
-      >
-        <Search size={12} />
-        <span className="flex-1 text-left">Search</span>
-        <kbd className="font-mono text-[10px] border border-line-1 rounded px-1">
-          {formatCombo(comboFor("palette", shortcuts))}
-        </kbd>
-      </button>
+      {!dashboardOpen && (
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          className="w-72 h-7 rounded bg-bg-2 border border-line-0 text-fg-2 flex items-center gap-2 px-2 text-xs hover:border-line-1 hover:text-fg-1 focus-visible:ring-1 ring-accent/60 outline-none"
+        >
+          <Search size={12} />
+          <span className="flex-1 text-left">Search</span>
+          <kbd className="font-mono text-[10px] border border-line-1 rounded px-1">
+            {formatCombo(comboFor("palette", shortcuts))}
+          </kbd>
+        </button>
+      )}
 
-      <div className="flex items-center justify-end gap-1 min-w-0">
-      <div ref={envRef} className="relative">
+      <div className={cn("flex items-center justify-end gap-1 min-w-0", dashboardOpen && "col-span-2")}>
+      {!dashboardOpen && <div ref={envRef} className="relative">
         <button
           type="button"
           title="Environment"
@@ -142,20 +162,22 @@ export function Toolbar() {
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
-      <button
-        type="button"
-        onClick={() => setAiOpen(!aiOpen)}
-        title="AI"
-        aria-pressed={aiOpen}
-        className={cn(
-          "h-7 w-7 shrink-0 rounded flex items-center justify-center hover:bg-bg-hover focus-visible:ring-1 ring-accent/60 outline-none",
-          aiOpen ? "text-accent bg-accent-soft" : "text-fg-1 hover:text-fg-0",
-        )}
-      >
-        <Sparkles size={14} />
-      </button>
+      {!dashboardOpen && (
+        <button
+          type="button"
+          onClick={() => setAiOpen(!aiOpen)}
+          title="AI"
+          aria-pressed={aiOpen}
+          className={cn(
+            "h-7 w-7 shrink-0 rounded flex items-center justify-center hover:bg-bg-hover focus-visible:ring-1 ring-accent/60 outline-none",
+            aiOpen ? "text-accent bg-accent-soft" : "text-fg-1 hover:text-fg-0",
+          )}
+        >
+          <Sparkles size={14} />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setSettingsOpen(true)}

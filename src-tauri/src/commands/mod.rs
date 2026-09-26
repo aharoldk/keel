@@ -108,6 +108,14 @@ pub async fn workspace_info(ctx: Ctx<'_>) -> Result<Option<WorkspaceInfoDto>, St
     with_workspace(&ctx, |root| workspace::open_workspace(root)).await.map(Some).or(Ok(None))
 }
 
+/// Reads a workspace's display info without switching the open workspace.
+/// Missing or invalid paths come back as `None` so a recent-projects list can
+/// skip folders that were moved or deleted.
+#[tauri::command]
+pub async fn workspace_peek(path: String) -> Result<Option<WorkspaceInfoDto>, String> {
+    Ok(workspace::open_workspace(std::path::Path::new(&path)).ok())
+}
+
 #[tauri::command]
 pub async fn workspace_load_tree(ctx: Ctx<'_>) -> Result<Vec<TreeNodeDto>, String> {
     with_workspace(&ctx, |root| workspace::load_tree(root)).await

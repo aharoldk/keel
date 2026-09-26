@@ -33,6 +33,8 @@ export const api = {
     invoke<WorkspaceInfo>("workspace_init", { path, name }),
   workspaceClose: () => invoke<void>("workspace_close"),
   workspaceInfo: () => invoke<WorkspaceInfo | null>("workspace_info"),
+  workspacePeek: (path: string) =>
+    invoke<WorkspaceInfo | null>("workspace_peek", { path }),
   loadTree: () => invoke<TreeNode[]>("workspace_load_tree"),
   folderCreate: (parent: string, name: string) =>
     invoke<string>("folder_create", { parent, name }),

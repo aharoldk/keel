@@ -19,6 +19,19 @@ describe("Toolbar", () => {
     resetStore();
   });
 
+  it("opens the dashboard and hides project, search, and environment", () => {
+    useKeel.setState({ workspace: { root: "/ws", name: "My API", hasGit: false } });
+    const { rerender } = render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    expect(useKeel.getState().contentPanel).toEqual({ kind: "dashboard" });
+    rerender(<Toolbar />);
+    expect(screen.queryByRole("button", { name: /My API/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Search/ })).toBeNull();
+    expect(screen.queryByTitle("Environment")).toBeNull();
+    expect(screen.queryByTitle("AI")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
+  });
+
   it("opens the command palette from search", () => {
     render(<Toolbar />);
     fireEvent.click(screen.getByRole("button", { name: /Search/ }));

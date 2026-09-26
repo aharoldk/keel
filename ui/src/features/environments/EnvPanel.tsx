@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
-import { FileCode2, Globe2, Lock, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Copy, FileCode2, FilePlus2, Lock, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "@/api/client";
 import { emptyEnvDoc, type EnvDoc, type EnvSummary } from "@/api/types";
 import { Button, EmptyState, IconButton, Modal, Spinner, TextInput } from "@/components/ui";
 import { cn } from "@/utils";
-import { useKeel } from "@/state/store";
+import { envTabKey, useKeel } from "@/state/store";
 
 export function EnvPanel() {
   const envs = useKeel((s) => s.envs);
@@ -14,10 +14,46 @@ export function EnvPanel() {
   const toast = useKeel((s) => s.toast);
 
   const openEnvironment = useKeel((s) => s.openEnvironment);
+  const closeEditor = useKeel((s) => s.closeEditor);
+  const [addOpen, setAddOpen] = useState(false);
+  const addRef = useRef<HTMLDivElement>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [deleting, setDeleting] = useState<EnvSummary | null>(null);
+  const [menu, setMenu] = useState<{ env: EnvSummary; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  useEffect(() => {
+    if (!addOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!addRef.current?.contains(e.target as Node)) setAddOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAddOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [addOpen]);
 
   const openEditor = (env: EnvSummary) => openEnvironment(env.fileName);
 
@@ -41,8 +77,20 @@ export function EnvPanel() {
     setDeleting(null);
     try {
       await api.envDelete(target.fileName);
+      closeEditor(envTabKey(target.fileName));
       await loadEnvs();
       toast(`Environment “${target.name}” deleted`, "success");
+    } catch (err) {
+      toast(String(err), "error");
+    }
+  };
+
+  const duplicateEnv = async (env: EnvSummary) => {
+    try {
+      const doc = await api.envRead(env.fileName);
+      await api.envSave(null, { ...doc, name: `${doc.name} copy` });
+      await loadEnvs();
+      toast(`Environment “${doc.name}” duplicated`, "success");
     } catch (err) {
       toast(String(err), "error");
     }
@@ -57,6 +105,7 @@ export function EnvPanel() {
       });
       if (!picked) return;
       const files = await importPostman(picked, "");
+      await loadEnvs();
       const imported = files.find((f) => f.startsWith("environments/"));
       if (imported) {
         const fileName = imported.slice("environments/".length);
@@ -72,24 +121,45 @@ export function EnvPanel() {
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-2.5 gap-2 text-xs font-semibold uppercase tracking-wider text-fg-2">
         <span className="flex-1">Environments</span>
-        <IconButton
-          title="Import Postman environment"
-          className="h-6 w-6"
-          onClick={importEnvironment}
-        >
-          <Upload size={13} />
-        </IconButton>
-        <IconButton
-          title="New environment"
-          className="h-6 w-6"
-          onClick={() => {
-            setNewName("");
-            setNewDesc("");
-            setCreateOpen(true);
-          }}
-        >
-          <Plus size={13} />
-        </IconButton>
+        <div ref={addRef} className="relative">
+          <IconButton
+            title="Add"
+            aria-haspopup="menu"
+            aria-expanded={addOpen}
+            className="h-6 w-6"
+            onClick={() => setAddOpen((o) => !o)}
+          >
+            <Plus size={13} />
+          </IconButton>
+          {addOpen && (
+            <div className="absolute right-0 top-full mt-1 z-40 w-48 rounded-md border border-line-0 bg-bg-1 shadow-xl py-1">
+              <button
+                type="button"
+                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-0 hover:bg-bg-hover"
+                onClick={() => {
+                  setAddOpen(false);
+                  setNewName("");
+                  setNewDesc("");
+                  setCreateOpen(true);
+                }}
+              >
+                <FilePlus2 size={13} className="shrink-0 text-fg-2" />
+                Add environment
+              </button>
+              <button
+                type="button"
+                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-0 hover:bg-bg-hover"
+                onClick={() => {
+                  setAddOpen(false);
+                  void importEnvironment();
+                }}
+              >
+                <Upload size={13} className="shrink-0 text-fg-2" />
+                Import
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-1">
@@ -97,7 +167,7 @@ export function EnvPanel() {
           <EmptyState
             icon={<FileCode2 size={24} />}
             title="No environments"
-            hint="Create an environment or import a Postman environment export (↑ button)"
+            hint="Use + to add an environment or import a Postman export"
           />
         ) : (
           envs.map((env) => (
@@ -105,41 +175,58 @@ export function EnvPanel() {
               key={env.fileName}
               title={`${env.fileName} — click to edit`}
               onClick={() => openEditor(env)}
-              className="group h-7 px-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none text-fg-1 hover:bg-bg-hover"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ env, x: e.clientX, y: e.clientY });
+              }}
+              className="h-7 px-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none text-fg-1 hover:bg-bg-hover"
             >
               <FileCode2 size={13} className="shrink-0 text-fg-2" />
               <span className="truncate">{env.name}</span>
-              <span className="ml-auto shrink-0 text-[10px] text-fg-2 group-hover:hidden">
+              <span className="ml-auto shrink-0 text-[10px] text-fg-2">
                 {env.variableCount} vars · {env.secretCount} secrets
-              </span>
-              <span className="hidden group-hover:flex items-center gap-0.5 ml-auto shrink-0">
-                <button
-                  type="button"
-                  title="Edit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditor(env);
-                  }}
-                  className="h-5 w-5 inline-flex items-center justify-center rounded text-fg-2 hover:text-fg-0 hover:bg-bg-hover"
-                >
-                  <Pencil size={11} />
-                </button>
-                <button
-                  type="button"
-                  title="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleting(env);
-                  }}
-                  className="h-5 w-5 inline-flex items-center justify-center rounded text-fg-2 hover:text-danger hover:bg-bg-hover"
-                >
-                  <Trash2 size={11} />
-                </button>
               </span>
             </div>
           ))
         )}
       </div>
+
+      {menu && (
+        <div
+          className="fixed z-50 min-w-36 rounded border border-line-0 bg-bg-2 shadow-lg py-1 text-xs"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <EnvMenuItem
+            label="Duplicate"
+            icon={<Copy size={12} />}
+            onClick={() => {
+              const env = menu.env;
+              setMenu(null);
+              void duplicateEnv(env);
+            }}
+          />
+          <EnvMenuItem
+            label="Edit"
+            icon={<Pencil size={12} />}
+            onClick={() => {
+              const env = menu.env;
+              setMenu(null);
+              openEditor(env);
+            }}
+          />
+          <EnvMenuItem
+            label="Delete"
+            danger
+            icon={<Trash2 size={12} />}
+            onClick={() => {
+              const env = menu.env;
+              setMenu(null);
+              setDeleting(env);
+            }}
+          />
+        </div>
+      )}
 
       <Modal
         open={createOpen}
@@ -245,7 +332,8 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
         setKeychain(new Set(present));
       } catch (err) {
         if (!alive) return;
-        toast(String(err), "error");
+        const missing = /no such file|not found|os error 2/i.test(String(err));
+        if (!missing) toast(String(err), "error");
         closeEditor(`env:${env.fileName}`);
       } finally {
         if (alive) setLoading(false);
@@ -351,12 +439,7 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
-      <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-3 gap-2">
-        <Globe2 size={14} className="shrink-0 text-fg-2" />
-        <span className="text-xs font-semibold text-fg-0 truncate">
-          Environment: {name || env.name}
-        </span>
-        <div className="flex-1" />
+      <div className="h-9 shrink-0 border-b border-line-0 flex items-center justify-end px-3">
         <Button variant="primary" disabled={saving || loading} onClick={save}>
           Save
         </Button>
@@ -600,6 +683,36 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+function EnvMenuItem({
+  label,
+  danger,
+  icon,
+  onClick,
+}: {
+  label: string;
+  danger?: boolean;
+  icon: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        "w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-bg-hover",
+        danger ? "text-danger" : "text-fg-1 hover:text-fg-0",
+      )}
+    >
+      <span className={cn("shrink-0", danger ? "text-danger" : "text-fg-2")}>{icon}</span>
+      {label}
+    </button>
   );
 }
 

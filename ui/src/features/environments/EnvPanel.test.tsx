@@ -58,7 +58,8 @@ describe("EnvPanel", () => {
     }) as unknown as typeof invoke);
 
     render(<EnvPanel />);
-    fireEvent.click(screen.getByTitle("Edit"));
+    fireEvent.contextMenu(screen.getByText("local"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(useKeel.getState().activeEditor).toBe("env:local.yaml");
     render(<EnvironmentEditor fileName="local.yaml" />);
 
@@ -101,7 +102,8 @@ describe("EnvPanel", () => {
 
   it("creates an environment via the header Plus button", async () => {
     render(<EnvPanel />);
-    fireEvent.click(screen.getByTitle("New environment"));
+    fireEvent.click(screen.getByTitle("Add"));
+    fireEvent.click(screen.getByRole("button", { name: "Add environment" }));
     const nameInput = screen.getByPlaceholderText("Name");
     fireEvent.change(nameInput, { target: { value: "staging" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -116,12 +118,45 @@ describe("EnvPanel", () => {
     });
   });
 
-  it("deletes via confirm modal", async () => {
+  it("deletes via confirm modal and closes the open editor", async () => {
+    useKeel.setState({
+      editorTabs: [{ kind: "environment", fileName: "local.yaml" }],
+      activeEditor: "env:local.yaml",
+    });
     render(<EnvPanel />);
-    fireEvent.click(screen.getByTitle("Delete"));
+    fireEvent.contextMenu(screen.getByText("local"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     fireEvent.click(screen.getByText("Delete", { selector: "button" }));
     await waitFor(() => {
       expect(invokeMock.mock.calls.some((c) => c[0] === "env_delete")).toBe(true);
+    });
+    expect(useKeel.getState().editorTabs).toEqual([]);
+    expect(useKeel.getState().activeEditor).toBeNull();
+  });
+
+  it("duplicates an environment from the context menu", async () => {
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "env_read") {
+        return Promise.resolve({
+          schemaVersion: "1",
+          name: "local",
+          variables: { baseUrl: "http://localhost" },
+        });
+      }
+      return Promise.resolve(cmd === "env_list" ? [envSummary] : null);
+    }) as unknown as typeof invoke);
+
+    render(<EnvPanel />);
+    fireEvent.contextMenu(screen.getByText("local"));
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+
+    await waitFor(() => {
+      const save = invokeMock.mock.calls.find((c) => c[0] === "env_save");
+      expect(save).toBeTruthy();
+      expect(save![1]).toMatchObject({
+        fileName: null,
+        doc: { name: "local copy", variables: { baseUrl: "http://localhost" } },
+      });
     });
   });
 });

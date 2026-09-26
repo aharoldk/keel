@@ -8,6 +8,7 @@ on:
         required: true
         type: choice
         options:
+          - rc
           - patch
           - minor
           - major
@@ -31,14 +32,23 @@ jobs:
           set -euo pipefail
 
           current=$(jq -r .version package.json)
-          IFS=. read -r major minor patch <<<"$current"
+          base="${current%%-*}"
+          IFS=. read -r major minor patch <<<"$base"
           case "$BUMP" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
+            major) major=$((major + 1)); minor=0; patch=0; next="$major.$minor.$patch" ;;
+            minor) minor=$((minor + 1)); patch=0; next="$major.$minor.$patch" ;;
+            patch) patch=$((patch + 1)); next="$major.$minor.$patch" ;;
+            rc)
+              if [[ "$current" == *-rc.* ]]; then
+                n="${current##*-rc.}"
+                next="$base-rc.$((n + 1))"
+              else
+                patch=$((patch + 1))
+                next="$major.$minor.$patch-rc.1"
+              fi
+              ;;
             *) echo "unknown bump: $BUMP" >&2; exit 1 ;;
           esac
-          next="$major.$minor.$patch"
           tag="v$next"
 
           if git rev-parse "$tag" >/dev/null 2>&1; then

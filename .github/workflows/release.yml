@@ -72,8 +72,11 @@ jobs:
           find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f \
             \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.zip' \) \
             -exec cp {} dist/ \;
-          cli="src-tauri/target/${{ matrix.target }}/release/${{ matrix.cli }}"
-          cp "$cli" "dist/${{ matrix.cli }}"
+          built="src-tauri/target/${{ matrix.target }}/release/keel-cli"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            built="${built}.exe"
+          fi
+          cp "$built" "dist/${{ matrix.cli }}"
           if [[ "${{ matrix.os }}" != "windows-latest" ]]; then
             tar -C dist -czf "dist/${{ matrix.cli }}.tar.gz" "${{ matrix.cli }}"
             rm "dist/${{ matrix.cli }}"
@@ -85,9 +88,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          prerelease=()
+          if [[ "${{ github.ref_name }}" == *-rc.* ]]; then
+            prerelease=(--prerelease)
+          fi
           gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
             gh release create "${{ github.ref_name }}" \
               --draft \
+              "${prerelease[@]}" \
               --title "Keel ${{ github.ref_name }}" \
               --notes "See the assets to download and install this version."
 

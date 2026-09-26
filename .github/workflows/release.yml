@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cli: keel-aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cli: keel-x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            cli: keel-x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cli: keel-x86_64-pc-windows-msvc.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci && npm --prefix ui ci
+
+      # Ad-hoc signature so Apple Silicon treats GitHub downloads as signed.
+      # Replace with a Developer ID cert (APPLE_CERTIFICATE secrets) to notarize.
+      - name: Ad-hoc sign macOS builds
+        if: matrix.os == 'macos-latest'
+        run: echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+
+      - name: Build app
+        run: npm run build:app -- --target ${{ matrix.target }}
+
+      - name: Build keel CLI
+        working-directory: src-tauri
+        run: cargo build --release --bin keel-cli --target ${{ matrix.target }}
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.zip' \) \
+            -exec cp {} dist/ \;
+          cli="src-tauri/target/${{ matrix.target }}/release/${{ matrix.cli }}"
+          cp "$cli" "dist/${{ matrix.cli }}"
+          if [[ "${{ matrix.os }}" != "windows-latest" ]]; then
+            tar -C dist -czf "dist/${{ matrix.cli }}.tar.gz" "${{ matrix.cli }}"
+            rm "dist/${{ matrix.cli }}"
+          fi
+          ls -lh dist
+
+      - name: Create draft release
+        if: matrix.target == 'aarch64-apple-darwin'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
+            gh release create "${{ github.ref_name }}" \
+              --draft \
+              --title "Keel ${{ github.ref_name }}" \
+              --notes "See the assets to download and install this version."
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          gh release upload "${{ github.ref_name }}" dist/* --clobber

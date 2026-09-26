@@ -1,12 +1,16 @@
-schemaVersion: "1"
+schemaVersion: '1'
 name: Login
+kind: request
 description: Exchange credentials for an access token. Stores the token as a session variable.
 request:
   method: POST
-  url: "{{baseUrl}}/auth/login"
+  url: '{{baseUrl}}/auth/login'
+  params:
+  - name: ''
+    value: ''
   headers:
-    - name: Accept
-      value: application/json
+  - name: Accept
+    value: application/json
   body:
     type: json
     content: |-
@@ -26,7 +30,7 @@ scripts:
       expect(typeof json("token")).toBeTypeOf("string");
     });
 tests:
-  - expect: response.status
-    toBe: 200
-  - expect: response.json.token
-    toBeType: string
+- expect: response.status
+  toBe: 200
+- expect: response.json.token
+  toBeType: string

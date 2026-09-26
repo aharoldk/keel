@@ -98,6 +98,14 @@ export function flowStepStopsOnFailure(step: FlowStep): boolean {
   return typeof step === "string" ? true : step.onFailure !== "continue";
 }
 
+export interface FlowTreeNode {
+  /** Path relative to `flows/`. */
+  path: string;
+  name: string;
+  kind: "folder" | "flow";
+  children?: FlowTreeNode[];
+}
+
 export interface RequestDoc {
   schemaVersion: string;
   name: string;

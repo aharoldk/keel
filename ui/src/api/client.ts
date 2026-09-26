@@ -17,6 +17,7 @@ import type {
   KV,
   ProtoFile,
   FlowDoc,
+  FlowTreeNode,
   RequestDoc,
   RunOptions,
   RunnerEvent,
@@ -210,11 +211,18 @@ export const api = {
     context: string,
   ) => invoke<string>("ai_generate", { args: { kind, prompt, context } }),
   flowList: () => invoke<{ fileName: string; name: string }[]>("flow_list"),
+  flowTree: () => invoke<FlowTreeNode[]>("flow_tree"),
   flowRead: (fileName: string) => invoke<FlowDoc>("flow_read", { fileName }),
-  flowSave: (fileName: string | null, doc: FlowDoc) =>
-    invoke<string>("flow_save", { fileName, doc }),
+  flowSave: (fileName: string | null, doc: FlowDoc, folder?: string | null) =>
+    invoke<string>("flow_save", { fileName, folder: folder ?? null, doc }),
   flowDelete: (fileName: string) => invoke<void>("flow_delete", { fileName }),
-  flowImport: (path: string) => invoke<string>("flow_import", { path }),
+  flowMkdir: (parent: string, name: string) => invoke<string>("flow_mkdir", { parent, name }),
+  flowMove: (path: string, dest: string) => invoke<string>("flow_move", { path, dest }),
+  flowReorder: (path: string, target: string, before: boolean) =>
+    invoke<string>("flow_reorder", { path, target, before }),
+  flowDuplicate: (path: string) => invoke<string>("flow_duplicate", { path }),
+  flowImport: (path: string, folder?: string | null) =>
+    invoke<string>("flow_import", { path, folder: folder ?? null }),
   flowToYaml: (doc: FlowDoc) => invoke<string>("flow_to_yaml", { doc }),
   exportRequest: (path: string) => invoke<string>("export_request", { path }),
   exportCollection: (folder: string) => invoke<string>("export_collection", { folder }),

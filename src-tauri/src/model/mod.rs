@@ -500,7 +500,7 @@ pub struct EnvValuesDoc {
     pub values: Option<BTreeMap<String, BTreeMap<String, String>>>,
 }
 
-/// A saved request sequence (`flows/*.yaml`). Steps reference request files by
+/// A saved request sequence (`flows/**/*.yaml`). Steps reference request files by
 /// workspace-relative path and run in order. A step is a path string, or an
 /// object with `onFailure` so older files still load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -692,8 +692,22 @@ pub struct WorkspaceInfoDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlowSummaryDto {
+    /// Path relative to `flows/`, using `/`.
     pub file_name: String,
     pub name: String,
+}
+
+/// One node in the flows tree. Folders hold children; flows are leaves.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowTreeNodeDto {
+    /// Path relative to `flows/`, using `/`.
+    pub path: String,
+    pub name: String,
+    /// `folder` or `flow`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<FlowTreeNodeDto>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

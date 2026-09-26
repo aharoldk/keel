@@ -1106,6 +1106,11 @@ pub async fn flow_list(ctx: Ctx<'_>) -> Result<Vec<FlowSummaryDto>, String> {
 }
 
 #[tauri::command]
+pub async fn flow_tree(ctx: Ctx<'_>) -> Result<Vec<FlowTreeNodeDto>, String> {
+    with_workspace(&ctx, |root| workspace::flow_tree(root)).await
+}
+
+#[tauri::command]
 pub async fn flow_read(file_name: String, ctx: Ctx<'_>) -> Result<FlowDoc, String> {
     with_workspace(&ctx, |root| workspace::flow_read(root, &file_name)).await
 }
@@ -1113,10 +1118,39 @@ pub async fn flow_read(file_name: String, ctx: Ctx<'_>) -> Result<FlowDoc, Strin
 #[tauri::command]
 pub async fn flow_save(
     file_name: Option<String>,
+    folder: Option<String>,
     doc: FlowDoc,
     ctx: Ctx<'_>,
 ) -> Result<String, String> {
-    with_workspace(&ctx, |root| workspace::flow_save(root, file_name.as_deref(), &doc)).await
+    with_workspace(&ctx, |root| {
+        workspace::flow_save(root, file_name.as_deref(), folder.as_deref(), &doc)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn flow_mkdir(parent: String, name: String, ctx: Ctx<'_>) -> Result<String, String> {
+    with_workspace(&ctx, |root| workspace::flow_mkdir(root, &parent, &name)).await
+}
+
+#[tauri::command]
+pub async fn flow_move(path: String, dest: String, ctx: Ctx<'_>) -> Result<String, String> {
+    with_workspace(&ctx, |root| workspace::flow_move(root, &path, &dest)).await
+}
+
+#[tauri::command]
+pub async fn flow_reorder(
+    path: String,
+    target: String,
+    before: bool,
+    ctx: Ctx<'_>,
+) -> Result<String, String> {
+    with_workspace(&ctx, |root| workspace::flow_reorder(root, &path, &target, before)).await
+}
+
+#[tauri::command]
+pub async fn flow_duplicate(path: String, ctx: Ctx<'_>) -> Result<String, String> {
+    with_workspace(&ctx, |root| workspace::flow_duplicate(root, &path)).await
 }
 
 #[tauri::command]
@@ -1125,11 +1159,14 @@ pub async fn flow_delete(file_name: String, ctx: Ctx<'_>) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub async fn flow_import(path: String, ctx: Ctx<'_>) -> Result<String, String> {
+pub async fn flow_import(path: String, folder: Option<String>, ctx: Ctx<'_>) -> Result<String, String> {
     if path.trim().is_empty() {
         return Err("no flow file selected".into());
     }
-    with_workspace(&ctx, |root| workspace::flow_import(root, std::path::Path::new(&path))).await
+    with_workspace(&ctx, |root| {
+        workspace::flow_import(root, std::path::Path::new(&path), folder.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]

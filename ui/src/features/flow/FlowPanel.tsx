@@ -1,10 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, FileDown, FileUp, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
+import {
+  ArrowDown,
+  ChevronRight,
+  FileDown,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+  Workflow,
+  X,
+} from "lucide-react";
 import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "@/api/client";
-import { flowStepPath, type FlowDoc, type HttpMethod, type SendResult, type TreeNode } from "@/api/types";
+import {
+  flowStepPath,
+  type FlowDoc,
+  type FlowTreeNode,
+  type HttpMethod,
+  type SendResult,
+  type TreeNode,
+} from "@/api/types";
 import { SplitPane } from "@/components/SplitPane";
-import { Button, EmptyState, IconButton, Select, TextInput } from "@/components/ui";
+import { Button, EmptyState, IconButton, Modal, Select, TextInput } from "@/components/ui";
 import ResponseViewer from "@/features/response/ResponseViewer";
 import { cn, formatMs, methodVar, statusClass } from "@/utils";
 import { useKeel } from "@/state/store";
@@ -22,6 +42,13 @@ interface StepResult {
   status: "running" | "ok" | "error";
   result?: SendResult;
   error?: string;
+}
+
+interface EditorState {
+  fileName: string | null;
+  folder: string;
+  name: string;
+  steps: Step[];
 }
 
 function requestOptions(tree: TreeNode[]) {
@@ -56,6 +83,17 @@ function lookup(requests: ReturnType<typeof requestOptions>, step: import("@/api
   };
 }
 
+function folderOptions(nodes: FlowTreeNode[], prefix = ""): { path: string; label: string }[] {
+  const out: { path: string; label: string }[] = [];
+  for (const n of nodes) {
+    if (n.kind !== "folder") continue;
+    const label = prefix ? `${prefix} / ${n.name}` : n.name;
+    out.push({ path: n.path, label });
+    if (n.children) out.push(...folderOptions(n.children, label));
+  }
+  return out;
+}
+
 export function FlowPanel() {
   const tree = useKeel((s) => s.tree);
   const workspace = useKeel((s) => s.workspace);
@@ -63,18 +101,24 @@ export function FlowPanel() {
   const toast = useKeel((s) => s.toast);
   const requests = useMemo(() => requestOptions(tree), [tree]);
 
-  const [flows, setFlows] = useState<{ fileName: string; name: string }[]>([]);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [name, setName] = useState("Untitled flow");
-  const [steps, setSteps] = useState<Step[]>([]);
+  const [nodes, setNodes] = useState<FlowTreeNode[]>([]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [pick, setPick] = useState("");
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const [createFolder, setCreateFolder] = useState<string | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const [menu, setMenu] = useState<{ x: number; y: number; node: FlowTreeNode } | null>(null);
+
+  const folders = useMemo(() => folderOptions(nodes), [nodes]);
 
   const refresh = () => {
-    api.flowList().then(setFlows).catch((e) => toast(String(e), "error"));
+    api.flowTree().then(setNodes).catch((e) => toast(String(e), "error"));
   };
 
   useEffect(() => {
@@ -84,12 +128,16 @@ export function FlowPanel() {
   }, [workspace?.root]);
 
   useEffect(() => {
-    if (!addMenu) return;
+    if (!addMenu && !menu) return;
     const onDown = (e: MouseEvent) => {
-      if (!addMenuRef.current?.contains(e.target as Node)) setAddMenu(false);
+      if (addMenu && !addMenuRef.current?.contains(e.target as Node)) setAddMenu(false);
+      setMenu(null);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAddMenu(false);
+      if (e.key === "Escape") {
+        setAddMenu(false);
+        setMenu(null);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -97,33 +145,45 @@ export function FlowPanel() {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [addMenu]);
+  }, [addMenu, menu]);
 
-  const load = async (file: string) => {
+  const openEditor = async (file: string) => {
     try {
       const doc = await api.flowRead(file);
-      setFileName(file);
-      setName(doc.name);
-      setSteps(doc.steps.map((p) => lookup(requests, p)));
+      const slash = file.lastIndexOf("/");
+      setSelected(file);
+      setPick("");
+      setEditor({
+        fileName: file,
+        folder: slash === -1 ? "" : file.slice(0, slash),
+        name: doc.name,
+        steps: doc.steps.map((p) => lookup(requests, p)),
+      });
     } catch (e) {
       toast(String(e), "error");
     }
   };
 
+  const startCreate = (folder: string) => {
+    setPick("");
+    setEditor({ fileName: null, folder, name: "", steps: [] });
+  };
+
   const save = async () => {
+    if (!editor) return;
     const doc: FlowDoc = {
       schemaVersion: "1",
-      name: name.trim() || "Untitled flow",
+      name: editor.name.trim() || "Untitled flow",
       kind: "flow",
-      steps: steps.map((s) =>
+      steps: editor.steps.map((s) =>
         s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
       ),
     };
     setSaving(true);
     try {
-      const saved = await api.flowSave(fileName, doc);
-      setFileName(saved);
-      setName(doc.name);
+      const saved = await api.flowSave(editor.fileName, doc, editor.fileName ? null : editor.folder);
+      setEditor((ed) => (ed ? { ...ed, fileName: saved, name: doc.name } : ed));
+      setSelected(saved);
       refresh();
       toast("Flow saved", "success");
     } catch (e) {
@@ -133,7 +193,7 @@ export function FlowPanel() {
     }
   };
 
-  const importFlow = async () => {
+  const importFlow = async (folder: string) => {
     try {
       const picked = await openDialog({
         multiple: false,
@@ -141,9 +201,9 @@ export function FlowPanel() {
         filters: [{ name: "Flow (YAML)", extensions: ["yaml", "yml"] }],
       });
       if (!picked || Array.isArray(picked)) return;
-      const saved = await api.flowImport(picked);
+      const saved = await api.flowImport(picked, folder);
       refresh();
-      await load(saved);
+      await openEditor(saved);
       toast("Flow imported", "success");
     } catch (e) {
       toast(String(e), "error");
@@ -151,11 +211,12 @@ export function FlowPanel() {
   };
 
   const exportFlow = async () => {
+    if (!editor) return;
     const doc: FlowDoc = {
       schemaVersion: "1",
-      name: name.trim() || "Untitled flow",
+      name: editor.name.trim() || "Untitled flow",
       kind: "flow",
-      steps: steps.map((s) =>
+      steps: editor.steps.map((s) =>
         s.stopOnFailure ? s.path : { path: s.path, onFailure: "continue" },
       ),
     };
@@ -174,31 +235,55 @@ export function FlowPanel() {
     }
   };
 
-  const removeFlow = async () => {
-    if (!fileName) return;
+  const removeNode = async (path: string) => {
     try {
-      await api.flowDelete(fileName);
-      setFileName(null);
-      setName("Untitled flow");
-      setSteps([]);
+      await api.flowDelete(path);
+      if (selected === path || editor?.fileName === path) {
+        setSelected(null);
+        setEditor(null);
+      }
       refresh();
     } catch (e) {
       toast(String(e), "error");
     }
   };
 
-  const add = () => {
+  const submitFolder = async () => {
+    const parent = createFolder;
+    const name = folderName.trim();
+    if (parent === null || !name) return;
+    setCreateFolder(null);
+    setFolderName("");
+    try {
+      const created = await api.flowMkdir(parent, name);
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (parent) next.delete(parent);
+        next.delete(created);
+        return next;
+      });
+      refresh();
+    } catch (e) {
+      toast(String(e), "error");
+    }
+  };
+
+  const addStep = () => {
     const req = requests.find((r) => r.path === pick) ?? requests[0];
-    if (!req) return;
-    setSteps((s) => [
-      ...s,
-      { id: crypto.randomUUID(), path: req.path, name: req.name, method: req.method, stopOnFailure: true },
-    ]);
+    if (!req || !editor) return;
+    setEditor({
+      ...editor,
+      steps: [
+        ...editor.steps,
+        { id: crypto.randomUUID(), path: req.path, name: req.name, method: req.method, stopOnFailure: true },
+      ],
+    });
   };
 
   const run = async () => {
-    if (steps.length === 0 || running) return;
-    const title = name.trim() || "Untitled flow";
+    if (!editor || editor.steps.length === 0 || running) return;
+    const steps = editor.steps;
+    const title = editor.name.trim() || "Untitled flow";
     let live: Record<string, StepResult> = {};
     const publish = (runningNow: boolean, results: Record<string, StepResult>) =>
       useKeel.getState().setFlowRun({ name: title, running: runningNow, steps, results });
@@ -238,10 +323,88 @@ export function FlowPanel() {
     publish(false, live);
   };
 
+  const filter = query.trim().toLowerCase();
+  const visible = useMemo(() => {
+    if (!filter) return nodes;
+    const prune = (list: FlowTreeNode[]): FlowTreeNode[] => {
+      const out: FlowTreeNode[] = [];
+      for (const n of list) {
+        if (n.kind === "flow") {
+          if (n.name.toLowerCase().includes(filter) || n.path.toLowerCase().includes(filter)) out.push(n);
+        } else {
+          const children = prune(n.children ?? []);
+          if (children.length > 0 || n.name.toLowerCase().includes(filter)) {
+            out.push({ ...n, children });
+          }
+        }
+      }
+      return out;
+    };
+    return prune(nodes);
+  }, [nodes, filter]);
+
+  const renderNode = (node: FlowTreeNode, depth: number) => {
+    const isFolder = node.kind === "folder";
+    const open = filter ? true : !collapsed.has(node.path);
+    const active = selected === node.path;
+    return (
+      <div key={node.path}>
+        <div
+          role="treeitem"
+          title={node.path}
+          style={{ paddingLeft: 8 + depth * 12 }}
+          onClick={() => {
+            if (isFolder) {
+              setCollapsed((prev) => {
+                const next = new Set(prev);
+                if (next.has(node.path)) next.delete(node.path);
+                else next.add(node.path);
+                return next;
+              });
+            } else {
+              void openEditor(node.path);
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu({ x: e.clientX, y: e.clientY, node });
+          }}
+          className={cn(
+            "h-7 pr-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none",
+            active ? "bg-accent-soft text-fg-0" : "text-fg-1 hover:bg-bg-hover",
+          )}
+        >
+          {isFolder ? (
+            <>
+              <ChevronRight
+                size={12}
+                className={cn("shrink-0 text-fg-2 transition-transform", open && "rotate-90")}
+              />
+              {open ? (
+                <FolderOpen size={13} className="shrink-0 text-fg-2" />
+              ) : (
+                <Folder size={13} className="shrink-0 text-fg-2" />
+              )}
+              <span className="truncate">{node.name}</span>
+            </>
+          ) : (
+            <>
+              <span className="w-3 shrink-0" />
+              <Workflow size={13} className="shrink-0 text-fg-2" />
+              <span className="truncate">{node.name}</span>
+            </>
+          )}
+        </div>
+        {isFolder && open && node.children?.map((child) => renderNode(child, depth + 1))}
+      </div>
+    );
+  };
+
+  const empty = nodes.length === 0;
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
-      <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-2.5 gap-2 text-xs font-semibold uppercase tracking-wider text-fg-2">
-        <Workflow size={14} className="shrink-0" />
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-2.5 gap-1 text-xs font-semibold uppercase tracking-wider text-fg-2">
         <span className="flex-1">Flow</span>
         <div ref={addMenuRef} className="relative">
           <IconButton
@@ -250,149 +413,384 @@ export function FlowPanel() {
             aria-haspopup="menu"
             aria-expanded={addMenu}
             className="h-6 w-6"
-            disabled={running}
             onClick={() => setAddMenu((open) => !open)}
           >
             <Plus size={13} />
           </IconButton>
           {addMenu && (
             <div className="absolute right-0 top-full mt-1 z-40 w-44 rounded-md border border-line-0 bg-bg-1 shadow-xl py-1">
-              <button
-                type="button"
-                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-1 hover:bg-bg-hover hover:text-fg-0"
+              <MenuButton
+                icon={<Plus size={13} />}
+                label="Add flow"
                 onClick={() => {
                   setAddMenu(false);
-                  void importFlow();
+                  startCreate("");
                 }}
-              >
-                <span className="shrink-0 text-fg-2"><FileDown size={13} /></span>
-                Import flow
-              </button>
-              <button
-                type="button"
-                className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-1 hover:bg-bg-hover hover:text-fg-0"
+              />
+              <MenuButton
+                icon={<FolderPlus size={13} />}
+                label="Add folder"
                 onClick={() => {
                   setAddMenu(false);
-                  void exportFlow();
+                  setFolderName("");
+                  setCreateFolder("");
                 }}
-              >
-                <span className="shrink-0 text-fg-2"><FileUp size={13} /></span>
-                Export flow
-              </button>
+              />
+              <MenuButton
+                icon={<FileDown size={13} />}
+                label="Import flow"
+                onClick={() => {
+                  setAddMenu(false);
+                  void importFlow("");
+                }}
+              />
             </div>
           )}
         </div>
-        <IconButton title="Save flow" className="h-6 w-6" disabled={saving || running} onClick={() => void save()}>
-          <Save size={13} />
-        </IconButton>
-        <Button
-          variant="primary"
-          className="h-6 px-2"
-          disabled={steps.length === 0 || running}
-          onClick={() => void run()}
-        >
-          <Play size={11} />
-          Run
-        </Button>
       </div>
 
-      <div className="shrink-0 border-b border-line-0 p-2 flex flex-col gap-1.5">
-        <div className="flex items-center gap-1.5">
-          <Select
-            className="flex-1 min-w-0"
-            value={fileName ?? ""}
-            onChange={(e) => {
-              const file = e.target.value;
-              if (!file) {
-                setFileName(null);
-                setName("Untitled flow");
-                setSteps([]);
-                return;
-              }
-              void load(file);
-            }}
-          >
-            <option value="">New flow</option>
-            {flows.map((f) => (
-              <option key={f.fileName} value={f.fileName}>
-                {f.name}
-              </option>
-            ))}
-          </Select>
-          {fileName && (
-            <IconButton title="Delete flow" className="h-7 w-7" disabled={running} onClick={() => void removeFlow()}>
-              <Trash2 size={13} />
-            </IconButton>
+      <div className="shrink-0 border-b border-line-0 px-2 py-1.5">
+        <div className="flex items-center gap-1.5 rounded border border-line-0 bg-bg-2 px-2">
+          <Search size={12} className="shrink-0 text-fg-2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search flows..."
+            aria-label="Search flows"
+            className="h-6 min-w-0 flex-1 bg-transparent text-xs text-fg-0 outline-none placeholder:text-fg-2"
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="shrink-0 text-fg-2 hover:text-fg-0"
+              onClick={() => setQuery("")}
+            >
+              <X size={12} />
+            </button>
           )}
         </div>
-        <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Flow name" />
       </div>
 
-      <div className="shrink-0 border-b border-line-0 p-2 flex items-center gap-1.5">
-        <Select
-          className="flex-1 min-w-0"
-          value={pick}
-          onChange={(e) => setPick(e.target.value)}
-          disabled={requests.length === 0}
-        >
-          {requests.length === 0 ? (
-            <option value="">No requests</option>
-          ) : (
-            <>
-              <option value="">Select request…</option>
-              {requests.map((r) => (
-                <option key={r.path} value={r.path}>
-                  {r.method} {r.label}
-                </option>
-              ))}
-            </>
-          )}
-        </Select>
-        <IconButton title="Add step" className="h-7 w-7" disabled={requests.length === 0} onClick={add}>
-          <Plus size={14} />
-        </IconButton>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {steps.length === 0 ? (
+      <div className="flex-1 min-h-0 overflow-y-auto p-1">
+        {empty ? (
           <EmptyState
             icon={<Workflow size={24} />}
-            title="No steps"
-            hint="Add requests in order. Each step sees variables set by the one before it."
+            title="No flows"
+            hint="Create a flow or a folder to organize them."
+            action={
+              <Button variant="default" className="mt-1" onClick={() => startCreate("")}>
+                New flow
+              </Button>
+            }
           />
+        ) : filter && visible.length === 0 ? (
+          <div className="flex h-full items-center justify-center p-6 text-center">
+            <p className="text-xs text-fg-2">No matches for {query}</p>
+          </div>
         ) : (
-          steps.map((step, i) => (
-              <div key={step.id} className={i === 0 ? "pt-1.5" : undefined}>
-                {i > 0 && (
-                  <div className="flex justify-center text-fg-2">
-                    <ArrowDown size={12} />
-                  </div>
-                )}
-                <div className="mx-1.5 rounded border border-line-0 bg-bg-0">
-                  <div className="flex items-center gap-1 h-7 px-1.5">
-                    <span className="w-3 shrink-0 text-center font-mono text-[10px] text-fg-2">{i + 1}</span>
-                    <span
-                      className="w-10 shrink-0 font-mono text-[10px] font-bold"
-                      style={{ color: methodVar(step.method) }}
-                    >
-                      {step.method}
-                    </span>
-                    <span className="flex-1 truncate text-xs text-fg-0">{step.name}</span>
-                    <IconButton
-                      title="Remove"
-                      className="h-5 w-5"
-                      disabled={running}
-                      onClick={() => setSteps((s) => s.filter((x) => x.id !== step.id))}
-                    >
-                      {running ? <X size={11} /> : <Trash2 size={11} />}
-                    </IconButton>
-                  </div>
-                </div>
-              </div>
-            ))
+          visible.map((n) => renderNode(n, 0))
         )}
       </div>
+
+      {menu && (
+        <div
+          className="fixed z-50 min-w-40 rounded border border-line-0 bg-bg-2 shadow-lg py-1 text-xs"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {menu.node.kind === "folder" ? (
+            <>
+              <ContextItem
+                label="New flow…"
+                onClick={() => {
+                  const parent = menu.node.path;
+                  setMenu(null);
+                  startCreate(parent);
+                }}
+              />
+              <ContextItem
+                label="New folder…"
+                onClick={() => {
+                  setFolderName("");
+                  setCreateFolder(menu.node.path);
+                  setMenu(null);
+                }}
+              />
+              <ContextItem
+                label="Import flow…"
+                onClick={() => {
+                  const parent = menu.node.path;
+                  setMenu(null);
+                  void importFlow(parent);
+                }}
+              />
+              <ContextItem
+                label="Delete"
+                danger
+                onClick={() => {
+                  const path = menu.node.path;
+                  setMenu(null);
+                  void removeNode(path);
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <ContextItem
+                label="Open"
+                onClick={() => {
+                  const path = menu.node.path;
+                  setMenu(null);
+                  void openEditor(path);
+                }}
+              />
+              <ContextItem
+                label="Delete"
+                danger
+                onClick={() => {
+                  const path = menu.node.path;
+                  setMenu(null);
+                  void removeNode(path);
+                }}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      <Modal
+        open={editor !== null}
+        onClose={() => {
+          if (!running) setEditor(null);
+        }}
+        title={editor?.fileName ? "Edit flow" : "New flow"}
+        width="max-w-lg"
+      >
+        {editor && (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] uppercase tracking-wider text-fg-2">Name</span>
+              <TextInput
+                autoFocus
+                value={editor.name}
+                placeholder="Flow name"
+                onChange={(e) => setEditor({ ...editor, name: e.target.value })}
+              />
+            </label>
+            {!editor.fileName && (
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] uppercase tracking-wider text-fg-2">Folder</span>
+                <Select
+                  value={editor.folder}
+                  onChange={(e) => setEditor({ ...editor, folder: e.target.value })}
+                >
+                  <option value="">flows</option>
+                  {folders.map((f) => (
+                    <option key={f.path} value={f.path}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
+            <div className="flex items-center gap-1.5">
+              <Select
+                className="flex-1 min-w-0"
+                value={pick}
+                onChange={(e) => setPick(e.target.value)}
+                disabled={requests.length === 0 || running}
+              >
+                {requests.length === 0 ? (
+                  <option value="">No requests</option>
+                ) : (
+                  <>
+                    <option value="">Select request…</option>
+                    {requests.map((r) => (
+                      <option key={r.path} value={r.path}>
+                        {r.method} {r.label}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </Select>
+              <IconButton title="Add step" className="h-7 w-7" disabled={requests.length === 0 || running} onClick={addStep}>
+                <Plus size={14} />
+              </IconButton>
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded border border-line-0">
+              {editor.steps.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-fg-2">
+                  Add requests in order. Each step sees variables set by the one before it.
+                </p>
+              ) : (
+                editor.steps.map((step, i) => (
+                  <div key={step.id}>
+                    {i > 0 && (
+                      <div className="flex justify-center text-fg-2">
+                        <ArrowDown size={12} />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1 h-8 px-2">
+                      <span className="w-3 shrink-0 text-center font-mono text-[10px] text-fg-2">{i + 1}</span>
+                      <span
+                        className="w-10 shrink-0 font-mono text-[10px] font-bold"
+                        style={{ color: methodVar(step.method) }}
+                      >
+                        {step.method}
+                      </span>
+                      <span className="flex-1 truncate text-xs text-fg-0">{step.name}</span>
+                      <button
+                        type="button"
+                        title={step.stopOnFailure ? "Stop on failure" : "Continue on failure"}
+                        disabled={running}
+                        onClick={() =>
+                          setEditor({
+                            ...editor,
+                            steps: editor.steps.map((s) =>
+                              s.id === step.id ? { ...s, stopOnFailure: !s.stopOnFailure } : s,
+                            ),
+                          })
+                        }
+                        className={cn(
+                          "shrink-0 font-mono text-[10px]",
+                          step.stopOnFailure ? "text-fg-2" : "text-fg-1",
+                        )}
+                      >
+                        {step.stopOnFailure ? "stop" : "continue"}
+                      </button>
+                      <IconButton
+                        title="Remove"
+                        className="h-5 w-5"
+                        disabled={running}
+                        onClick={() =>
+                          setEditor({ ...editor, steps: editor.steps.filter((s) => s.id !== step.id) })
+                        }
+                      >
+                        <Trash2 size={11} />
+                      </IconButton>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                {editor.fileName && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={running}
+                    onClick={() => void removeNode(editor.fileName!)}
+                  >
+                    Delete
+                  </Button>
+                )}
+                <Button type="button" variant="ghost" disabled={running} onClick={() => void exportFlow()}>
+                  Export
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" disabled={running} onClick={() => setEditor(null)}>
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={editor.steps.length === 0 || running}
+                  onClick={() => void run()}
+                >
+                  <Play size={11} />
+                  Run
+                </Button>
+                <Button type="button" variant="primary" disabled={saving || running} onClick={() => void save()}>
+                  {editor.fileName ? "Save" : "Create"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={createFolder !== null}
+        onClose={() => setCreateFolder(null)}
+        title="New folder"
+        width="max-w-sm"
+      >
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitFolder();
+          }}
+        >
+          <TextInput
+            autoFocus
+            placeholder="Name"
+            value={folderName}
+            onChange={(e) => setFolderName(e.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setCreateFolder(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={!folderName.trim()}>
+              Create
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
+  );
+}
+
+function MenuButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full h-8 px-3 flex items-center gap-2 text-left text-xs text-fg-1 hover:bg-bg-hover hover:text-fg-0"
+    >
+      <span className="shrink-0 text-fg-2">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+function ContextItem({
+  label,
+  danger,
+  onClick,
+}: {
+  label: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        "block w-full px-3 py-1.5 text-left hover:bg-bg-hover",
+        danger ? "text-danger" : "text-fg-1 hover:text-fg-0",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 

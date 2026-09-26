@@ -650,26 +650,146 @@ pub fn delete_node(root: &Path, relative: &str) -> Result<(), String> {
 pub const FLOW_DIR: &str = "flows";
 
 pub fn flow_list(root: &Path) -> Result<Vec<crate::model::FlowSummaryDto>, String> {
-    let dir = root.join(FLOW_DIR);
+    let mut items = Vec::new();
+    collect_flows(root, &root.join(FLOW_DIR), &mut items)?;
+    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(items)
+}
+
+/// Folders and flow files under `flows/`, nested like the collection tree.
+/// Sibling order comes from `.order.yaml` when present.
+pub fn flow_tree(root: &Path) -> Result<Vec<crate::model::FlowTreeNodeDto>, String> {
+    read_flow_dir(root, &root.join(FLOW_DIR))
+}
+
+fn collect_flows(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<crate::model::FlowSummaryDto>,
+) -> Result<(), String> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| format!("read flows: {e}"))?
+        .flatten()
+    {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            collect_flows(root, &path, out)?;
+        } else if name.ends_with(".yaml") || name.ends_with(".yml") {
+            let file_name = flow_rel(root, &path);
+            let display = flow_read(root, &file_name)
+                .map(|doc| doc.name)
+                .unwrap_or_else(|_| {
+                    name.trim_end_matches(".yaml")
+                        .trim_end_matches(".yml")
+                        .to_string()
+                });
+            out.push(crate::model::FlowSummaryDto {
+                file_name,
+                name: display,
+            });
+        }
+    }
+    Ok(())
+}
+
+const FLOW_ORDER_FILE: &str = ".order.yaml";
+
+fn read_flow_dir(root: &Path, dir: &Path) -> Result<Vec<crate::model::FlowTreeNodeDto>, String> {
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
-    let mut items: Vec<crate::model::FlowSummaryDto> = std::fs::read_dir(&dir)
+    let mut by_name: Vec<(String, crate::model::FlowTreeNodeDto)> = Vec::new();
+    for entry in std::fs::read_dir(dir)
         .map_err(|e| format!("read flows: {e}"))?
         .flatten()
+    {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let rel = flow_rel(root, &path);
+        if path.is_dir() {
+            let children = read_flow_dir(root, &path)?;
+            by_name.push((
+                name.clone(),
+                crate::model::FlowTreeNodeDto {
+                    path: rel,
+                    name,
+                    kind: "folder".into(),
+                    children: Some(children),
+                },
+            ));
+        } else if name.ends_with(".yaml") || name.ends_with(".yml") {
+            let display = flow_read(root, &rel).map(|doc| doc.name).unwrap_or_else(|_| {
+                name.trim_end_matches(".yaml")
+                    .trim_end_matches(".yml")
+                    .to_string()
+            });
+            by_name.push((
+                name,
+                crate::model::FlowTreeNodeDto {
+                    path: rel,
+                    name: display,
+                    kind: "flow".into(),
+                    children: None,
+                },
+            ));
+        }
+    }
+    let order = flow_order_of(dir);
+    by_name.sort_by(|a, b| {
+        let ai = order.iter().position(|n| n == &a.0).unwrap_or(usize::MAX);
+        let bi = order.iter().position(|n| n == &b.0).unwrap_or(usize::MAX);
+        ai.cmp(&bi)
+            .then_with(|| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase()))
+    });
+    Ok(by_name.into_iter().map(|(_, node)| node).collect())
+}
+
+fn flow_child_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
         .filter_map(|e| {
-            let file_name = e.file_name().to_string_lossy().into_owned();
-            if !file_name.ends_with(".yaml") {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
                 return None;
             }
-            let name = flow_read(root, &file_name)
-                .map(|doc| doc.name)
-                .unwrap_or_else(|_| file_name.trim_end_matches(".yaml").to_string());
-            Some(crate::model::FlowSummaryDto { file_name, name })
+            let path = e.path();
+            if path.is_dir() || name.ends_with(".yaml") || name.ends_with(".yml") {
+                Some(name)
+            } else {
+                None
+            }
         })
         .collect();
-    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    Ok(items)
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
+fn flow_order_of(dir: &Path) -> Vec<String> {
+    let saved = std::fs::read_to_string(dir.join(FLOW_ORDER_FILE))
+        .ok()
+        .and_then(|text| yaml_to::<Vec<String>>(&text).ok());
+    let mut names = flow_child_names(dir);
+    if let Some(saved) = saved {
+        names.sort_by_key(|n| saved.iter().position(|o| o == n).unwrap_or(usize::MAX));
+    }
+    names
+}
+
+fn write_flow_order(dir: &Path, order: Vec<String>) -> Result<(), String> {
+    std::fs::write(dir.join(FLOW_ORDER_FILE), yaml_of(&order)?).map_err(|e| e.to_string())
 }
 
 pub fn flow_read(root: &Path, file_name: &str) -> Result<FlowDoc, String> {
@@ -678,36 +798,171 @@ pub fn flow_read(root: &Path, file_name: &str) -> Result<FlowDoc, String> {
     yaml_to(&text)
 }
 
-pub fn flow_save(root: &Path, file_name: Option<&str>, doc: &FlowDoc) -> Result<String, String> {
+/// Saves a flow. `file_name` is the path relative to `flows/` when updating.
+/// `folder` is that same relative folder for a new file; empty means `flows/`.
+pub fn flow_save(
+    root: &Path,
+    file_name: Option<&str>,
+    folder: Option<&str>,
+    doc: &FlowDoc,
+) -> Result<String, String> {
     if doc.name.trim().is_empty() {
         return Err("flow name is empty".into());
     }
-    let dir = root.join(FLOW_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let name = match file_name {
-        Some(name) => flow_file_name(name)?,
+    let (dir, name) = match file_name {
+        Some(name) => {
+            let rel = flow_rel_name(name)?;
+            let path = flow_path(root, &rel)?;
+            let dir = path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| root.join(FLOW_DIR));
+            (dir, rel)
+        }
         None => {
+            let rel_dir = flow_folder(folder.unwrap_or(""))?;
+            let dir = if rel_dir.is_empty() {
+                root.join(FLOW_DIR)
+            } else {
+                root.join(FLOW_DIR).join(&rel_dir)
+            };
+            if !rel_dir.is_empty() && !dir.is_dir() {
+                return Err(format!("folder `{rel_dir}` does not exist"));
+            }
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let target = unique_path(&dir, &slugify(&doc.name));
-            target
+            let file = target
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
-                .into_owned()
+                .into_owned();
+            let rel = if rel_dir.is_empty() {
+                file
+            } else {
+                format!("{rel_dir}/{file}")
+            };
+            (dir, rel)
         }
     };
-    let path = dir.join(&name);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = flow_path(root, &name)?;
     std::fs::write(&path, yaml_of(doc)?).map_err(|e| format!("write `{name}`: {e}"))?;
     Ok(name)
 }
 
 pub fn flow_delete(root: &Path, file_name: &str) -> Result<(), String> {
     let path = flow_path(root, file_name)?;
-    std::fs::remove_file(path).map_err(|e| e.to_string())
+    if path.is_dir() {
+        if path.read_dir().map_err(|e| e.to_string())?.next().is_some() {
+            return Err("folder is not empty".into());
+        }
+        std::fs::remove_dir(&path).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
 }
 
-/// Copies a flow YAML into `flows/`, renaming on collision. The file must
+/// Creates a folder under `flows/`. `parent` is relative to `flows/`.
+pub fn flow_mkdir(root: &Path, parent: &str, name: &str) -> Result<String, String> {
+    if name.trim().is_empty() {
+        return Err("folder name is empty".into());
+    }
+    let rel_parent = flow_folder(parent)?;
+    let dir = if rel_parent.is_empty() {
+        root.join(FLOW_DIR)
+    } else {
+        flow_path(root, &rel_parent)?
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let target = unique_dir(&dir, &slugify(name));
+    std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+    Ok(flow_rel(root, &target))
+}
+
+/// Moves a flow file or folder into another folder under `flows/`.
+/// Empty `dest_folder` is the flows root. Same-folder moves are a no-op.
+pub fn flow_move(root: &Path, relative: &str, dest_folder: &str) -> Result<String, String> {
+    let rel = flow_node_rel(relative)?;
+    let dest = flow_folder(dest_folder)?;
+    let src = flow_path(root, &rel)?;
+    if !src.exists() {
+        return Err(format!("`{rel}` does not exist"));
+    }
+    let dest_dir = if dest.is_empty() {
+        root.join(FLOW_DIR)
+    } else {
+        let dir = flow_path(root, &dest)?;
+        if !dir.is_dir() {
+            return Err(format!("`{dest}` is not a folder"));
+        }
+        dir
+    };
+    if dest == rel || dest.starts_with(&format!("{rel}/")) {
+        return Err("cannot move a folder into itself".into());
+    }
+    let current = flow_parent(&rel);
+    if current == dest {
+        return Ok(rel);
+    }
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let file_name = src
+        .file_name()
+        .ok_or_else(|| format!("`{rel}` has no name"))?
+        .to_string_lossy()
+        .into_owned();
+    let mut target = dest_dir.join(&file_name);
+    if target.exists() {
+        let stem = src
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| slugify(&file_name));
+        target = if src.is_dir() {
+            unique_dir(&dest_dir, &stem)
+        } else {
+            unique_path(&dest_dir, &stem)
+        };
+    }
+    std::fs::rename(&src, &target).map_err(|e| format!("move: {e}"))?;
+    Ok(flow_rel(root, &target))
+}
+
+/// Places `relative` before or after `target`, moving into that folder when needed.
+pub fn flow_reorder(root: &Path, relative: &str, target: &str, before: bool) -> Result<String, String> {
+    let anchor = flow_node_rel(target)?;
+    let moved = flow_move(root, relative, &flow_parent(&anchor))?;
+    let path = flow_path(root, &moved)?;
+    let dir = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| root.join(FLOW_DIR));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("`{moved}` has no name"))?;
+    let anchor_name = Path::new(&anchor)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut order: Vec<String> = flow_order_of(&dir).into_iter().filter(|n| n != &name).collect();
+    let at = order.iter().position(|n| n == &anchor_name).unwrap_or(order.len());
+    let at = if before { at } else { (at + 1).min(order.len()) };
+    order.insert(at, name);
+    write_flow_order(&dir, order)?;
+    Ok(moved)
+}
+
+/// Copies a flow YAML next to itself, with a "copy" name.
+pub fn flow_duplicate(root: &Path, relative: &str) -> Result<String, String> {
+    let rel = flow_rel_name(relative)?;
+    let mut doc = flow_read(root, &rel)?;
+    doc.name = format!("{} copy", doc.name.trim());
+    let parent = flow_parent(&rel);
+    flow_save(root, None, Some(&parent), &doc)
+}
+
+/// Copies a flow YAML into `flows/` (or `folder` under it). The file must
 /// parse as a flow.
-pub fn flow_import(root: &Path, source: &Path) -> Result<String, String> {
+pub fn flow_import(root: &Path, source: &Path, folder: Option<&str>) -> Result<String, String> {
     if !source.is_file() {
         return Err("no flow file selected".into());
     }
@@ -716,7 +971,14 @@ pub fn flow_import(root: &Path, source: &Path) -> Result<String, String> {
     if doc.kind != "flow" {
         return Err("file is not a Keel flow".into());
     }
-    flow_save(root, None, &doc)
+    let rel_dir = flow_folder(folder.unwrap_or(""))?;
+    let dir = if rel_dir.is_empty() {
+        root.join(FLOW_DIR)
+    } else {
+        root.join(FLOW_DIR).join(&rel_dir)
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    flow_save(root, None, Some(&rel_dir), &doc)
 }
 
 /// Serializes one request file as YAML.
@@ -797,15 +1059,74 @@ fn zip_files(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     Ok(cursor.into_inner())
 }
 
-fn flow_file_name(file_name: &str) -> Result<String, String> {
-    if file_name.contains('/') || file_name.contains('\\') || !file_name.ends_with(".yaml") {
+/// A flow path relative to `flows/`: `/`-separated, no `..`, ending in `.yaml` or `.yml`.
+fn flow_rel_name(file_name: &str) -> Result<String, String> {
+    let rel = file_name.replace('\\', "/");
+    if rel.is_empty()
+        || rel.starts_with('/')
+        || rel.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..")
+        || !(rel.ends_with(".yaml") || rel.ends_with(".yml"))
+    {
         return Err("invalid flow file name".into());
     }
-    Ok(file_name.to_string())
+    Ok(rel)
 }
 
-fn flow_path(root: &Path, file_name: &str) -> Result<PathBuf, String> {
-    Ok(root.join(FLOW_DIR).join(flow_file_name(file_name)?))
+/// A folder path relative to `flows/`. Empty is the flows root.
+fn flow_folder(folder: &str) -> Result<String, String> {
+    let rel = folder.replace('\\', "/");
+    if rel.is_empty() {
+        return Ok(String::new());
+    }
+    if rel.starts_with('/')
+        || rel.ends_with('/')
+        || rel.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..")
+    {
+        return Err("invalid flow folder".into());
+    }
+    Ok(rel)
+}
+
+fn flow_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let rel = if relative.ends_with(".yaml") || relative.ends_with(".yml") {
+        flow_rel_name(relative)?
+    } else {
+        flow_folder(relative)?
+    };
+    let mut path = root.join(FLOW_DIR);
+    for seg in rel.split('/').filter(|s| !s.is_empty()) {
+        path.push(seg);
+    }
+    Ok(path)
+}
+
+fn flow_rel(root: &Path, target: &Path) -> String {
+    target
+        .strip_prefix(root.join(FLOW_DIR))
+        .unwrap_or(target)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// A flow file or folder path relative to `flows/`.
+fn flow_node_rel(relative: &str) -> Result<String, String> {
+    let rel = relative.replace('\\', "/");
+    if rel.ends_with(".yaml") || rel.ends_with(".yml") {
+        flow_rel_name(&rel)
+    } else {
+        let folder = flow_folder(&rel)?;
+        if folder.is_empty() {
+            return Err("invalid flow path".into());
+        }
+        Ok(folder)
+    }
+}
+
+fn flow_parent(relative: &str) -> String {
+    match relative.rfind('/') {
+        Some(i) => relative[..i].to_string(),
+        None => String::new(),
+    }
 }
 
 // ---------- environments ----------
@@ -1187,6 +1508,7 @@ request:
         let name = flow_save(
             root,
             None,
+            None,
             &FlowDoc {
                 schema_version: SCHEMA_VERSION.into(),
                 name: "Login then list".into(),
@@ -1219,11 +1541,83 @@ request:
             "schemaVersion: \"1\"\nname: Imported\nkind: flow\nsteps:\n  - login.yaml\n",
         )
         .unwrap();
-        let name = flow_import(root, &src).expect("import");
+        let name = flow_import(root, &src, None).expect("import");
         assert!(name.ends_with(".yaml"));
         let doc = flow_read(root, &name).expect("read");
         assert_eq!(doc.name, "Imported");
         assert_eq!(doc.steps.len(), 1);
+    }
+
+    #[test]
+    fn flow_folders_nest_under_flows() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        let folder = flow_mkdir(root, "", "Auth").expect("mkdir");
+        assert_eq!(folder, "auth");
+        let nested = flow_mkdir(root, &folder, "Setup").expect("nested");
+        assert_eq!(nested, "auth/setup");
+        let name = flow_save(
+            root,
+            None,
+            Some(&nested),
+            &FlowDoc {
+                schema_version: SCHEMA_VERSION.into(),
+                name: "Login".into(),
+                kind: "flow".into(),
+                steps: vec![crate::model::FlowStep::Path("login.yaml".into())],
+            },
+        )
+        .expect("save");
+        assert_eq!(name, "auth/setup/login.yaml");
+        let tree = flow_tree(root).expect("tree");
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].kind, "folder");
+        let child = tree[0].children.as_ref().unwrap();
+        assert_eq!(child[0].path, nested);
+        let flows = child[0].children.as_ref().unwrap();
+        assert_eq!(flows[0].kind, "flow");
+        assert_eq!(flows[0].name, "Login");
+        let listed = flow_list(root).expect("list");
+        assert_eq!(listed[0].file_name, name);
+        flow_delete(root, &name).expect("delete flow");
+        flow_delete(root, &nested).expect("delete nested");
+        flow_delete(root, &folder).expect("delete folder");
+        assert!(flow_tree(root).expect("tree").is_empty());
+    }
+
+    #[test]
+    fn flow_reorder_and_move() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        let save = |name: &str| {
+            flow_save(
+                root,
+                None,
+                None,
+                &FlowDoc {
+                    schema_version: SCHEMA_VERSION.into(),
+                    name: name.into(),
+                    kind: "flow".into(),
+                    steps: vec![],
+                },
+            )
+            .unwrap()
+        };
+        let a = save("Alpha");
+        let b = save("Beta");
+        flow_reorder(root, &b, &a, true).expect("reorder");
+        let tree = flow_tree(root).expect("tree");
+        assert_eq!(tree[0].name, "Beta");
+        assert_eq!(tree[1].name, "Alpha");
+        let folder = flow_mkdir(root, "", "Group").expect("mkdir");
+        let moved = flow_move(root, &a, &folder).expect("move");
+        assert!(moved.starts_with("group/"));
+        let copy = flow_duplicate(root, &moved).expect("duplicate");
+        let doc = flow_read(root, &copy).expect("read copy");
+        assert_eq!(doc.name, "Alpha copy");
+        let nested = flow_tree(root).expect("tree");
+        let group = nested.iter().find(|n| n.kind == "folder").unwrap();
+        assert_eq!(group.children.as_ref().unwrap().len(), 2);
     }
 
     #[test]

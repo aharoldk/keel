@@ -138,3 +138,17 @@ jobs:
           done
           gh release view "$tag"
           gh release upload "$tag" dist/* --clobber
+
+  # Matrix legs always create a draft so uploads can finish first.
+  # Release candidates stay drafts. Stable tags are published once every leg succeeds.
+  publish-release:
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false

@@ -12,18 +12,16 @@ describe("StatusBar", () => {
     resetStore();
   });
 
-  it("renders workspace, env, branch and version", () => {
+  it("renders workspace, branch and version", () => {
     useKeel.setState({
       version: "1.2.3",
       workspace: { root: "/tmp/demo", name: "Demo API", hasGit: true },
-      activeEnv: "local.yaml",
       git: { hasRepo: true, branch: "main", entries: [] },
       activePath: null,
       tabs: [],
     });
     render(<StatusBar />);
     expect(screen.getByText("Demo API")).toBeTruthy();
-    expect(screen.getByText("local.yaml")).toBeTruthy();
     expect(screen.getByText("main")).toBeTruthy();
     expect(screen.getByText("v1.2.3")).toBeTruthy();
   });
@@ -49,9 +47,8 @@ describe("StatusBar", () => {
     expect(screen.getByTitle("Unsaved changes")).toBeTruthy();
   });
 
-  it("shows no environment fallback", () => {
+  it("shows no workspace fallback", () => {
     render(<StatusBar />);
-    expect(screen.getByText("no environment")).toBeTruthy();
     expect(screen.getByText("No workspace")).toBeTruthy();
   });
 });

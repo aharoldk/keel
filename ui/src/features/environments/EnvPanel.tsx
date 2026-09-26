@@ -173,7 +173,7 @@ export function EnvPanel() {
           envs.map((env) => (
             <div
               key={env.fileName}
-              title={`${env.fileName} — click to edit`}
+              title={`${env.name} — click to edit`}
               onClick={() => openEditor(env)}
               onContextMenu={(e) => {
                 e.preventDefault();

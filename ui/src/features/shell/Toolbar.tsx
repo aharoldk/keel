@@ -137,7 +137,7 @@ export function Toolbar() {
               <button
                 key={env.fileName}
                 type="button"
-                title={env.fileName}
+                title={env.name}
                 className={cn(itemCls, "text-fg-1")}
                 onClick={() => pickEnv(env.fileName)}
               >

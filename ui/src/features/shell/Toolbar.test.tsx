@@ -46,7 +46,7 @@ describe("Toolbar", () => {
     useKeel.setState({ selectEnv });
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle("Environment"));
-    fireEvent.click(screen.getByTitle("local.yaml"));
+    fireEvent.click(screen.getByTitle("local"));
     expect(selectEnv).toHaveBeenCalledWith("local.yaml");
 
     fireEvent.click(screen.getByTitle("Environment"));

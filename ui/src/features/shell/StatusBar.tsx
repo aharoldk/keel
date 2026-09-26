@@ -1,10 +1,9 @@
-import { Columns2, Globe, GitBranch, Rows2, TerminalSquare } from "lucide-react";
+import { Columns2, GitBranch, Rows2, TerminalSquare } from "lucide-react";
 import { cn } from "@/utils";
 import { useKeel } from "@/state/store";
 
 export function StatusBar() {
   const workspace = useKeel((s) => s.workspace);
-  const activeEnv = useKeel((s) => s.activeEnv);
   const git = useKeel((s) => s.git);
   const activePath = useKeel((s) => s.activePath);
   const tabs = useKeel((s) => s.tabs);
@@ -38,10 +37,6 @@ export function StatusBar() {
 
       <span className="flex-1" />
 
-      <span className="flex items-center gap-1">
-        <Globe size={10} />
-        <span>{activeEnv ?? "no environment"}</span>
-      </span>
       {branch && (
         <span className="flex items-center gap-1" title="Git branch">
           <GitBranch size={10} />

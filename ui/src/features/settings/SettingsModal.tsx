@@ -71,7 +71,6 @@ export function SettingsModal() {
   const workspace = useKeel((s) => s.workspace);
   const version = useKeel((s) => s.version);
   const saveSettings = useKeel((s) => s.saveSettings);
-  const closeWorkspace = useKeel((s) => s.closeWorkspace);
 
   const [tab, setTab] = useState<SettingsTab>("general");
   const [draft, setDraft] = useState<AppSettings>(useKeel.getState().settings);
@@ -350,11 +349,6 @@ export function SettingsModal() {
                 <div className="font-mono text-[10px] break-all text-fg-2">{workspace.root}</div>
               </>
             )}
-            <div>
-              <Button variant="danger" onClick={() => void closeWorkspace()}>
-                Close workspace
-              </Button>
-            </div>
             <div className="flex items-center justify-between text-[10px] text-fg-2 pt-2">
               <span>{version ? `Keel ${version}` : "Keel"}</span>
               <span>MIT licensed</span>

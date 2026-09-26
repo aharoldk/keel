@@ -58,20 +58,6 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("closes the workspace via danger button", async () => {
-    useKeel.setState({
-      settingsOpen: true,
-      workspace: { root: "/tmp/demo", name: "Demo API", hasGit: true },
-    });
-    render(<SettingsModal />);
-    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
-    fireEvent.click(screen.getByRole("button", { name: "Close workspace" }));
-    await waitFor(() => {
-      expect(invokeMock.mock.calls.some((c) => c[0] === "workspace_close")).toBe(true);
-      expect(useKeel.getState().workspace).toBeNull();
-    });
-  });
-
   it("records a shortcut and persists auto save", async () => {
     useKeel.setState({ settingsOpen: true });
     render(<SettingsModal />);

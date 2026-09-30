@@ -1,0 +1,18 @@
+schemaVersion: "1"
+name: Refresh Token
+description: Rotates the access token using the refresh-token session variable.
+request:
+  method: POST
+  url: "{{baseUrl}}/auth/refresh"
+  body:
+    type: json
+    content: |-
+      {
+        "refreshToken": "{{refreshToken}}"
+      }
+scripts:
+  postResponse: |-
+    set("accessToken", json("token"))
+tests:
+  - expect: response.status
+    toBe: 200

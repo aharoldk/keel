@@ -1,0 +1,8 @@
+schemaVersion: "1"
+name: local
+description: Local development server
+variables:
+  baseUrl: http://localhost:8080
+secrets:
+  # Default value is committed and used when the keychain holds no current value.
+  apiToken: local-dev-token

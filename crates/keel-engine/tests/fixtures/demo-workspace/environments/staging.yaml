@@ -1,0 +1,7 @@
+schemaVersion: "1"
+name: staging
+description: Staging cluster
+variables:
+  baseUrl: https://staging.example.dev
+secrets:
+  apiToken: ""

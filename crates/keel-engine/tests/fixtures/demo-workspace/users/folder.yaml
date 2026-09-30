@@ -1,0 +1,10 @@
+schemaVersion: "1"
+kind: folder
+name: Users
+description: All endpoints inherit bearer auth from this folder.
+auth:
+  type: bearer
+  token: "{{accessToken}}"
+headers:
+  - name: X-Client
+    value: keel-demo

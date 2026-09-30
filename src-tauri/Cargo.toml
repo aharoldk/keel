@@ -32,9 +32,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml_ng = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "net", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
@@ -47,44 +47,11 @@ reqwest = { version = "0.12", default-features = false, features = [
   "socks",
 ] }
 git2 = { version = "0.19", default-features = false }
-tauri-plugin-opener = "2"
-keyring = { version = "3", features = [
-  "apple-native",
-  "windows-native",
-  "sync-secret-service",
-] }
-uuid = { version = "1", features = ["v4"] }
-bytes = "1"
-http = "1"
-http-body-util = "0.1"
-hyper = { version = "1", default-features = false, features = ["client", "http2"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client", "client-legacy", "http2", "tokio"] }
-hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "tls12", "webpki-roots", "http2"] }
-rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
-webpki-roots = "0.26"
-chrono = { version = "0.4", features = ["serde"] }
-thiserror = "2"
-boa_engine = "0.22"
 notify = "8"
-md-5 = "0.11"
-sha2 = "0.11"
-rand = "0.9"
+uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
-percent-encoding = "2"
-regex = "1"
-mime_guess = "2"
-url = "2"
-zip = { version = "2", default-features = false, features = ["deflate"] }
-futures-util = "0.3"
-tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+keel-engine = { path = "../crates/keel-engine" }
 
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6"
-
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true

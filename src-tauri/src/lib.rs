@@ -3,33 +3,16 @@
 //! The React UI talks to this core exclusively through the commands declared
 //! in `commands` (see docs/IPC_CONTRACT.md).
 
-// Public so the Keel Format parser/engines can be reused by external tooling.
-pub mod ai;
-pub mod auth;
+// The engines live in the `keel-engine` crate; re-export them so the Tauri
+// command layer, `keel-cli` and external tooling keep one import path.
+pub use keel_engine::{
+    ai, auth, codegen, cookies, datafile, engine, export_curl, export_openapi, gitutil, graphql,
+    grpc, history, import_curl, import_openapi, import_postman, import_source, inherit, model,
+    path_params, runner, secrets, settings, workspace, ws,
+};
+
 mod commands;
-pub mod codegen;
-pub mod cookies;
-pub mod datafile;
-pub mod engine;
-pub mod export_curl;
-pub mod export_openapi;
-pub mod gitutil;
-pub mod graphql;
-pub mod grpc;
-pub mod history;
-pub mod import_curl;
-pub mod import_openapi;
-pub mod import_postman;
-pub mod import_source;
-pub mod inherit;
-pub mod model;
-pub mod path_params;
-pub mod runner;
-pub mod secrets;
-pub mod settings;
 mod state;
-pub mod workspace;
-pub mod ws;
 
 use state::AppState;
 use tauri::image::Image;

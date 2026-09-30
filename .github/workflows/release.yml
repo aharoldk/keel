@@ -54,7 +54,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: .
 
       - name: Install npm dependencies
         run: npm ci && npm --prefix ui ci
@@ -96,10 +96,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f \
+          find "target/${{ matrix.target }}/release/bundle" -type f \
             \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.zip' \) \
             -exec cp {} dist/ \;
-          built="src-tauri/target/${{ matrix.target }}/release/keel-cli"
+          built="target/${{ matrix.target }}/release/keel-cli"
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             built="${built}.exe"
           fi

@@ -8,7 +8,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "build:app": "tauri build",
-    "test": "npm --prefix ui test && cd src-tauri && cargo test --features cli",
+    "test": "npm --prefix ui test && cargo test --workspace --features keel/cli",
     "install:all": "npm install && npm --prefix ui install"
   },
   "devDependencies": {

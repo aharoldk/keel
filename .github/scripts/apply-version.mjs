@@ -52,7 +52,7 @@ if (cargoAt === -1) {
 cargo[cargoAt] = `version = "${version}"`;
 fs.writeFileSync("src-tauri/Cargo.toml", cargo.join("\n"));
 
-const lock = fs.readFileSync("src-tauri/Cargo.lock", "utf8").split("\n");
+const lock = fs.readFileSync("Cargo.lock", "utf8").split("\n");
 let locked = false;
 for (let i = 0; i < lock.length - 1; i++) {
   if (lock[i].trim() === 'name = "keel"' && lock[i + 1].startsWith("version = ")) {
@@ -65,6 +65,6 @@ if (!locked) {
   console.error("keel package not found in Cargo.lock");
   process.exit(1);
 }
-fs.writeFileSync("src-tauri/Cargo.lock", lock.join("\n"));
+fs.writeFileSync("Cargo.lock", lock.join("\n"));
 
 console.log(`applied version ${version}`);

@@ -43,6 +43,20 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 The on-disk format is parsed by a library, so it is not tied to this app. Secrets go to the OS keychain — not into git, history, exports, or scripts.
 
+## Libraries
+
+The format and runtime live in one standalone crate, [`keel-engine`](crates/keel-engine), under `crates/`:
+
+It carries the format: typed documents for every file, YAML round-tripping, collection/folder inheritance, and `{{variable}}` interpolation with `$timestamp`, `$uuid` and `$randomInt` builtins. Secret-backed values resolve through a caller-provided source, so any CLI, editor plugin or CI job can read and resolve a workspace without the GUI. On top of that it carries the runtime: request sending, auth flows, scripts, the collection runner, cookies, WebSocket/gRPC sessions, import/export, codegen, Git, keychain secrets, AI and workspace management.
+
+The desktop app and `keel-cli` are thin layers on this crate, so they cannot drift from the format. Format tooling only needs the `model`, `inherit` and `variables` modules.
+
+```bash
+cargo add keel-engine
+```
+
+The whole workspace tests with `cargo test --workspace --features keel/cli`.
+
 ## Build
 
 You need Rust 1.77 or newer, Node 20 or newer, and the [Tauri 2 system dependencies](https://tauri.app/start/prerequisites/) (on Linux, `webkit2gtk-4.1` and `libgtk-3-dev` among them).
@@ -56,16 +70,16 @@ npm run dev
 Then open `examples/demo-workspace`. `auth/login.yaml` is set up to chain into a token.
 
 ```bash
-npm run build:app            # bundles land in src-tauri/target/release/bundle/
-cd src-tauri && cargo test --features cli
+npm run build:app            # bundles land in target/release/bundle/
+npm test                     # ui tests + cargo test --workspace --features keel/cli
 ```
 
-The Tauri CLI looks for `src-tauri/` in the working directory. While developing, the CLI binary is `src-tauri/target/debug/keel-cli`.
+The Tauri CLI looks for `src-tauri/` in the working directory. While developing, the CLI binary is `target/debug/keel-cli`.
 
 ## Command line
 
 ```bash
-cd src-tauri && cargo build --release --bin keel-cli --features cli
+cargo build --release -p keel --bin keel-cli --features cli
 target/release/keel-cli list
 target/release/keel-cli run auth/login.yaml --env local
 target/release/keel-cli run users/ -r --bail --output report.json --format json

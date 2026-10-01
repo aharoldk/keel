@@ -9,6 +9,10 @@ on:
         description: "Tag to release, e.g. v0.1.2"
         required: true
         type: string
+      description:
+        description: "Release description (Markdown). Defaults to generated notes."
+        required: false
+        type: string
 
 jobs:
   publish:
@@ -114,12 +118,18 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESCRIPTION: ${{ inputs.description }}
         run: |
           set -euo pipefail
           tag="${{ steps.release.outputs.tag }}"
           prerelease=()
           if [[ "$tag" == *-rc.* ]]; then
             prerelease=(--prerelease)
+          fi
+          if [[ -n "$DESCRIPTION" ]]; then
+            notes=(--notes "$DESCRIPTION")
+          else
+            notes=(--generate-notes)
           fi
           # GITHUB_ENV is per job, so every matrix leg must resolve the tag
           # and create the draft itself. Concurrent creates race; retry.
@@ -131,7 +141,7 @@ jobs:
               --draft \
               "${prerelease[@]}" \
               --title "Keel $tag" \
-              --notes "See the assets to download and install this version."; then
+              "${notes[@]}"; then
               break
             fi
             sleep 10

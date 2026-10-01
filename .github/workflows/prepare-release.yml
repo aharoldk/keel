@@ -11,6 +11,10 @@ on:
           - patch
           - minor
           - major
+      description:
+        description: "Release description (Markdown). Defaults to generated notes."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -69,4 +73,5 @@ jobs:
       - name: Trigger the release build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release.yml -f "tag=${{ steps.release.outputs.tag }}"
+          DESCRIPTION: ${{ inputs.description }}
+        run: gh workflow run release.yml -f "tag=${{ steps.release.outputs.tag }}" -f "description=$DESCRIPTION"

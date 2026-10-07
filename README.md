@@ -31,19 +31,21 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 **Scripts.** Pre-request and post-response scripts expose `keel`, `req`, and `res`, plus `test()` and a chai-style `expect()`. The Tests tab is separate: one assertion per row, not code.
 
-**Chain requests without scripts.** Any request can read the last response with `#{body.accessToken}`, `#{header.X-Trace}`, or `#{status}` in its URL, headers, or body — the value stays in memory, is never written to git, and is replaced at send time before `{{variables}}` run.
+**Chaining.** Read previous response with `#{body.accessToken}`, `#{header.X-Trace}`, `#{status}` in URLs, headers, or body (memory-only, replaced at send time).
 
 **Collection runs.** Stream one result at a time, pause between requests, stop on the first failure, or jump with `keel.setNextRequest()`.
 
-**Flows.** A flow is a saved sequence of requests, stored as its own YAML file under `flows/`. Steps run in order. Each step stops the flow on failure unless you set it to continue. Import and export a flow as a file.
-
-**CLI.** `keel-cli` runs the same files without the GUI and prints a JSON or JUnit-style report.
+**Flows.** Save a request sequence as a flow (`flows/*.yaml`), then run it step by step with an optional stop-on-failure per step. Import, duplicate, and delete flows from the sidebar — a duplicate is a new uniquely named file, so nothing is overwritten.
 
 **Import and export.** Import cURL, OpenAPI 3, and Postman v2.1. Export OpenAPI 3. Generate curl, fetch, axios, Python, HTTPie, Go, Java, and Node.
 
 **Git.** Status, stage, unstage, commit, log, per-file diffs, branches, pull, and push. A filesystem watcher picks up edits made outside the app.
 
-The on-disk format is parsed by a library, so it is not tied to this app. Secrets go to the OS keychain — not into git, history, exports, or scripts.
+**gRPC support.** Full gRPC client with proto parsing and call interface.
+
+**AI assistant.** Chat to generate scripts, tests, docs, commit messages, or requests.
+
+**CLI.** `keel-cli` runs collections offline, prints JSON or JUnit reports, exit codes 0/1/2.
 
 ## Libraries
 
@@ -61,7 +63,7 @@ The whole workspace tests with `cargo test --workspace --features keel/cli`.
 
 ## Build
 
-You need Rust 1.77 or newer, Node 20 or newer, and the [Tauri 2 system dependencies](https://tauri.app/start/prerequisites/) (on Linux, `webkit2gtk-4.1` and `libgtk-3-dev` among them).
+Requires: Rust 1.77+, Node 20+, Tauri 2 system dependencies (Linux: `webkit2gtk-4.1`, `libgtk-3-dev`).
 
 ```bash
 npm install
@@ -91,7 +93,7 @@ target/release/keel-cli import openapi ./spec.yaml --folder api
 target/release/keel-cli import postman ./collection.json --folder api
 ```
 
-`0` means every test passed, `1` means something failed, `2` means the arguments or the path were wrong.
+Exit codes: `0` = all tests passed, `1` = failure, `2` = invalid args/path.
 
 # Contribute
 
@@ -99,4 +101,4 @@ Code contributions are welcome. Please open pull requests against the `main` bra
 
 # License
 
-[MIT](LICENSE). Keel is early and independent — it is not affiliated with any other API client.
+MIT. Keel is early and independent — it is not affiliated with any other API client.

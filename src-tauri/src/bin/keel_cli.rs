@@ -428,6 +428,7 @@ fn cmd_run(args: &[String], cwd: &Path) -> i32 {
     let mut tally = Tally::default();
     let mut json_items: Vec<serde_json::Value> = Vec::new();
     let mut transient: BTreeMap<String, String> = BTreeMap::new();
+    let mut prev: Option<keel_lib::model::PrevResponse> = None;
     let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => return fail(format!("runtime: {e}")),
@@ -528,6 +529,7 @@ fn cmd_run(args: &[String], cwd: &Path) -> i32 {
                 collection: collection.as_ref(),
                 workspace_doc: Some(&workspace_doc),
                 transient: &mut transient,
+                prev: prev.as_ref(),
                 http: HttpOptions::default(),
                 secret_source: &secret_source,
                 request_path: Some(rel.clone()),
@@ -546,6 +548,9 @@ fn cmd_run(args: &[String], cwd: &Path) -> i32 {
                 store_cookies: false,
                 iteration_vars,
             }));
+            if let Some(captured) = output.captured {
+                prev = Some(captured);
+            }
             if let Some(record) = &output.history {
                 let _ = history::append(&root, record);
             }

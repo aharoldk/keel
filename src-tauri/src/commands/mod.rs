@@ -38,6 +38,7 @@ pub async fn workspace_open(
 ) -> Result<WorkspaceInfoDto, String> {
     let info = workspace::open_workspace(std::path::Path::new(&path))?;
     *ctx.workspace.lock().await = Some(std::path::PathBuf::from(&info.root));
+    *ctx.prev.lock().await = None;
     start_watcher(&app, &ctx, std::path::Path::new(&info.root));
     Ok(info)
 }
@@ -100,6 +101,7 @@ pub async fn workspace_close(ctx: Ctx<'_>) -> Result<(), String> {
     stop_watcher(&ctx);
     *ctx.workspace.lock().await = None;
     ctx.transient.lock().await.clear();
+    *ctx.prev.lock().await = None;
     Ok(())
 }
 
@@ -300,6 +302,7 @@ pub async fn send_request(
     };
 
     let mut transient = ctx.transient.lock().await.clone();
+    let prev = ctx.prev.lock().await.clone();
     let env_values = match &env_name {
         Some(file_name) => workspace::env_values_read(&root, file_name),
         None => BTreeMap::new(),
@@ -311,6 +314,7 @@ pub async fn send_request(
         collection: collection.as_ref(),
         workspace_doc: Some(&workspace_doc),
         transient: &mut transient,
+        prev: prev.as_ref(),
         http,
         secret_source: &secret_source,
         request_path: Some(path.clone()),
@@ -332,11 +336,24 @@ pub async fn send_request(
 
     let output = engine_send(input).await;
     *ctx.transient.lock().await = transient;
+    if let Some(captured) = output.captured {
+        *ctx.prev.lock().await = Some(captured);
+    }
 
     if let Some(record) = &output.history {
         history::append(&root, record)?;
     }
     Ok(output.result)
+}
+
+/// Suggestion paths for the `#{…}` previous-response tags: `status`, `body`,
+/// JSON leaves under `body.*`, and `header.Name`. Values are never returned.
+#[tauri::command]
+pub async fn prev_refs(ctx: Ctx<'_>) -> Result<Vec<String>, String> {
+    let prev = ctx.prev.lock().await.clone();
+    Ok(prev
+        .map(|p| crate::engine::variables::prev_ref_paths(&p))
+        .unwrap_or_default())
 }
 
 // ---------- collection & folder metadata (v1.1) ----------

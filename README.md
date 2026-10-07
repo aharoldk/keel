@@ -31,6 +31,8 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 **Scripts.** Pre-request and post-response scripts expose `keel`, `req`, and `res`, plus `test()` and a chai-style `expect()`. The Tests tab is separate: one assertion per row, not code.
 
+**Chain requests without scripts.** Any request can read the last response with `#{body.accessToken}`, `#{header.X-Trace}`, or `#{status}` in its URL, headers, or body — the value stays in memory, is never written to git, and is replaced at send time before `{{variables}}` run.
+
 **Collection runs.** Stream one result at a time, pause between requests, stop on the first failure, or jump with `keel.setNextRequest()`.
 
 **Flows.** A flow is a saved sequence of requests, stored as its own YAML file under `flows/`. Steps run in order. Each step stops the flow on failure unless you set it to continue. Import and export a flow as a file.

@@ -9,6 +9,7 @@ const SOURCE_LABEL: Record<VariableSuggestion["source"], string> = {
   secret: "secret",
   collection: "collection",
   folder: "folder",
+  prev: "prev",
 };
 
 const SOURCE_COLOR: Record<VariableSuggestion["source"], string> = {
@@ -16,6 +17,7 @@ const SOURCE_COLOR: Record<VariableSuggestion["source"], string> = {
   secret: "var(--warn)",
   collection: "var(--accent)",
   folder: "var(--info)",
+  prev: "var(--method-patch)",
 };
 
 /** Color for a `{{name}}` that matches nothing in the current scope. */
@@ -31,29 +33,36 @@ interface VariableInputProps
 
 interface Segment {
   text: string;
-  /** Present when the segment is a `{{variable}}` run. */
+  /** Present when the segment is a `{{variable}}` / `#{prev}` run. */
   source?: VariableSuggestion["source"] | "unknown";
 }
 
 /**
- * Splits a value into plain text and `{{variable}}` runs so each variable
- * can be painted in its source color (unknown names use the danger color).
- * Unclosed `{{` stays plain — it may still be mid-edit.
+ * Splits a value into plain text and `{{variable}}` / `#{prev}` runs so each
+ * variable can be painted in its source color (unknown names use the danger
+ * color; prev refs use their own color even when the engine has no response).
+ * Unclosed `{{` / `#{` stays plain — it may still be mid-edit.
  */
 function highlightSegments(
   value: string,
   variables: VariableSuggestion[] | undefined,
 ): Segment[] {
-  if (!value.includes("{{")) return [{ text: value }];
+  if (!value.includes("{{") && !value.includes("#{")) return [{ text: value }];
   const lookup = new Map((variables ?? []).map((v) => [v.name, v.source]));
   const segments: Segment[] = [];
-  const re = /\{\{([^{}]*)\}\}/g;
+  const re = /\{\{([^{}]*)\}\}|#\{([^{}#]*)\}/g;
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = re.exec(value))) {
     if (match.index > last) segments.push({ text: value.slice(last, match.index) });
-    const source = lookup.get(match[1].trim());
-    segments.push({ text: match[0], source: source ?? "unknown" });
+    const isPrev = match[2] !== undefined;
+    const name = (isPrev ? match[2] : match[1]).trim();
+    if (isPrev) {
+      segments.push({ text: match[0], source: "prev" });
+    } else {
+      const source = lookup.get(name);
+      segments.push({ text: match[0], source: source ?? "unknown" });
+    }
     last = match.index + match[0].length;
   }
   if (last < value.length) segments.push({ text: value.slice(last) });
@@ -80,6 +89,8 @@ export function VariableInput({
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const caretRef = useRef(0);
+  /** Which token is being edited: `{{` variables or `#{` previous-response. */
+  const [mode, setMode] = useState<"var" | "prev">("var");
   const undoable = useUndoableInput(value, onChange, inputRef);
   const { onContextMenu, editMenu } = useEditContextMenu(() =>
     nativeEditCommands(inputRef.current, undoable),
@@ -87,32 +98,44 @@ export function VariableInput({
 
   const options = useMemo(() => {
     if (!variables || variables.length === 0) return [];
+    const pool =
+      mode === "prev"
+        ? variables.filter((v) => v.source === "prev")
+        : variables.filter((v) => v.source !== "prev");
+    if (pool.length === 0) return [];
     const q = query.toLowerCase();
-    const matches = q ? variables.filter((v) => v.name.toLowerCase().includes(q)) : variables;
+    const matches = q ? pool.filter((v) => v.name.toLowerCase().includes(q)) : pool;
     return matches.slice(0, 8);
-  }, [variables, query]);
+  }, [variables, query, mode]);
+
+  const openFor = (mode: "var" | "prev", query: string, caret: number) => {
+    setMode(mode);
+    caretRef.current = caret;
+    setQuery(query);
+    setIndex(0);
+    setOpen(true);
+  };
 
   const syncQuery = (text: string, caret: number | null, end: number | null = caret) => {
     if (caret === null) return;
-    // A word selection inside `{{name}}` (double-click) counts as editing that
+    // A word selection inside a token (double-click) counts as editing that
     // name, not as a closed token.
     const selected = end !== null && end > caret ? text.slice(caret, end) : "";
-    // Selecting the whole `{{name}}` is a replace, not a filter — show every
+    // Selecting a whole token is a replace, not a filter — show every
     // suggestion so Enter swaps the token even when the old name matches none.
-    if (selected && /^\{\{[^{}]*\}\}$/.test(text.slice(caret - 2, end! + 2))) {
-      caretRef.current = caret + selected.length;
-      setQuery("");
-      setIndex(0);
-      setOpen(true);
+    const braceSel = /^\{\{[^{}]*\}\}$/.test(text.slice(caret - 2, end! + 2));
+    const prevSel = /^#\{[^{}#]*\}$/.test(text.slice(caret - 2, end! + 1));
+    if ((braceSel || prevSel) && selected) {
+      openFor(braceSel ? "var" : "prev", "", caret + selected.length);
       return;
     }
     const before = text.slice(0, caret);
-    const match = /\{\{([^{}]*)$/.exec(before);
-    if (match) {
-      caretRef.current = caret;
-      setQuery(match[1]);
-      setIndex(0);
-      setOpen(true);
+    const brace = /\{\{([^{}]*)$/.exec(before);
+    const prev = /#\{([^{}#]*)$/.exec(before);
+    if (prev && (!brace || prev.index >= brace.index)) {
+      openFor("prev", prev[1], caret);
+    } else if (brace) {
+      openFor("var", brace[1], caret);
     } else {
       setOpen(false);
       setQuery("");
@@ -122,17 +145,21 @@ export function VariableInput({
   const pick = (name: string) => {
     const input = inputRef.current;
     const live = input?.selectionStart ?? null;
+    const token = mode === "prev" ? "#{" : "{{";
+    const re = mode === "prev" ? /#\{([^{}#]*)$/ : /\{\{([^{}]*)$/;
     // A caret of 0 usually means the input lost focus to the dropdown, not
     // that the user is at the start. Fall back to where suggestions opened.
-    const caret = live && /\{\{[^{}]*$/.test(value.slice(0, live)) ? live : caretRef.current;
+    const caret = live && re.test(value.slice(0, live)) ? live : caretRef.current;
     const before = value.slice(0, caret);
-    const match = /\{\{([^{}]*)$/.exec(before);
+    const match = re.exec(before);
     if (!match) return;
     const start = caret - match[0].length;
     // Replace the whole token, including a name that continues past the caret
     // (e.g. selecting inside `{{FLOW}}` and picking another variable).
-    const after = value.slice(caret).replace(/^[^{}]*\}\}?/, "");
-    const insert = `{{${name}}}`;
+    const after = value
+      .slice(caret)
+      .replace(mode === "prev" ? /^[^{}#]*\}?/ : /^[^{}]*\}\}?/, "");
+    const insert = `${token}${name}${mode === "prev" ? "}" : "}}"}`;
     const next = `${value.slice(0, start)}${insert}${after}`;
     undoable.change(next);
     onChange(next);

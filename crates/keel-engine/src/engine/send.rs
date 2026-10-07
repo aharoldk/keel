@@ -19,8 +19,8 @@ use crate::engine::js::{self, Host, ReqState, ResState};
 use crate::engine::tests::run_tests;
 use crate::engine::variables::{Interpolator, Resolved, Scope, ScopeStack, SecretSource};
 use crate::model::{
-    AuthType, BodyType, CollectionDoc, EnvDoc, HeaderDto, HistoryRecord, RequestDoc, ResponseCtx,
-    SendResult, TestResultDto, TimelineEventDto, WorkspaceDoc,
+    AuthType, BodyType, CollectionDoc, EnvDoc, HeaderDto, HistoryRecord, PrevResponse, RequestDoc,
+    ResponseCtx, SendResult, TestResultDto, TimelineEventDto, WorkspaceDoc,
 };
 use crate::path_params;
 
@@ -31,6 +31,9 @@ pub struct SendInput<'a> {
     pub collection: Option<&'a CollectionDoc>,
     pub workspace_doc: Option<&'a WorkspaceDoc>,
     pub transient: &'a mut BTreeMap<String, String>,
+    /// The last completed response, for `#{body…}` / `#{header…}` / `#{status}`
+    /// tags. `None` leaves the tags as written.
+    pub prev: Option<&'a PrevResponse>,
     pub http: HttpOptions,
     pub secret_source: &'a dyn SecretSource,
     pub request_path: Option<String>,
@@ -63,6 +66,9 @@ pub struct SendInput<'a> {
 pub struct SendOutput {
     pub result: SendResult,
     pub history: Option<HistoryRecord>,
+    /// The response this send captured for the *next* request's `#{…}` tags.
+    /// `None` when no HTTP response was received (the previous one stays).
+    pub captured: Option<PrevResponse>,
 }
 
 struct ResolveStats {
@@ -271,6 +277,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
 
     let mut env_values = input.env_values.clone();
     let iteration_vars = input.iteration_vars.clone();
+    let prev = input.prev;
     let mut scopes = make_scopes(
         workspace_doc,
         env,
@@ -283,11 +290,15 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
     );
 
     let resolve_template = |scopes: &ScopeStack, template: &str, stats: &mut ResolveStats| -> String {
+        // Previous-response tags first (unresolved ones are reported as
+        // missing), then `{{vars}}` on the result.
+        let staged =
+            crate::engine::variables::apply_prev_refs_report(template, prev, &mut stats.missing);
         let interp = Interpolator {
             scopes,
             secrets: secret_source,
         };
-        let r = interp.resolve(template);
+        let r = interp.resolve(&staged);
         stats.absorb(&r);
         r.value
     };
@@ -429,7 +440,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
     let base_url = doc.request.url.clone();
     let auth: Option<crate::model::Auth> = {
         let a = doc.auth.clone().filter(|a| a.auth_type != AuthType::None);
-        a.map(|a| resolve_auth(&a, &scopes, &mut stats, secret_source_ref(secret_source)))
+        a.map(|a| resolve_auth(&a, &scopes, &mut stats, secret_source_ref(secret_source), prev))
     };
 
     if let Some(auth) = &auth {
@@ -706,6 +717,12 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
             env: env_label.clone(),
             request_path,
         }),
+        captured: Some(PrevResponse {
+            status: exchange.status,
+            headers: exchange.headers.clone(),
+            body: ctx_body.clone(),
+            json: ctx_body.as_ref().and_then(|t| serde_json::from_str(t).ok()),
+        }),
         result: SendResult {
             request_id: uuid::Uuid::new_v4().to_string(),
             status: exchange.status,
@@ -745,11 +762,19 @@ fn resolve_auth(
     scopes: &ScopeStack,
     stats: &mut ResolveStats,
     secret: &dyn SecretSource,
+    prev: Option<&PrevResponse>,
 ) -> crate::model::Auth {
     let mut r = |v: &Option<String>| -> Option<String> {
         v.as_ref().map(|t| {
+            // `#{…}` tags first (unresolved ones are reported as missing),
+            // then `{{vars}}`.
+            let staged = crate::engine::variables::apply_prev_refs_report(
+                t,
+                prev,
+                &mut stats.missing,
+            );
             let interp = Interpolator { scopes, secrets: secret };
-            let res = interp.resolve(t);
+            let res = interp.resolve(&staged);
             stats.absorb(&res);
             res.value
         })
@@ -854,11 +879,11 @@ fn build_body(
     Ok(match body.body_type {
         BodyType::None => PreparedBody::None,
         BodyType::Json => {
-            let content = resolve_str(body.content.as_deref().unwrap_or(""));
-            if content.trim().is_empty() {
+            let raw = body.content.as_deref().unwrap_or("");
+            if raw.trim().is_empty() {
                 return Err("body type is JSON but the content is empty".into());
             }
-            let value: serde_json::Value = serde_json::from_str(&content)
+            let value = substitute_json_tags(raw, &mut resolve_str)
                 .map_err(|e| format!("body is not valid JSON: {e}"))?;
             let bytes = serde_json::to_vec(&value).map_err(|e| format!("json error: {e}"))?;
             PreparedBody::Raw {
@@ -884,8 +909,7 @@ fn build_body(
                 .as_deref()
                 .filter(|v| !v.trim().is_empty())
                 .map(|v| {
-                    let resolved = resolve_str(v);
-                    serde_json::from_str::<serde_json::Value>(&resolved)
+                    substitute_json_tags(v, &mut resolve_str)
                         .map_err(|e| format!("GraphQL variables are not valid JSON: {e}"))
                 })
                 .transpose()?;
@@ -927,6 +951,71 @@ fn build_body(
     })
 }
 
+/// Parses JSON text after substituting `#{…}` / `{{…}}` tags in a JSON-aware
+/// way: inside a string the resolved value is escaped, and a tag outside a
+/// string is wrapped in quotes (tags always produce strings). That keeps
+/// bodies like `"password": #{body.publicKey}` — or a resolved value
+/// containing `"` — parseable. Tags that do not resolve are kept as literal
+/// text (they are reported as missing by the resolver).
+fn substitute_json_tags(
+    raw: &str,
+    resolve: &mut impl FnMut(&str) -> String,
+) -> Result<serde_json::Value, String> {
+    let re = regex::Regex::new(r"#\{[^{}#]+\}|\{\{[^{}]+\}\}").expect("static regex");
+    let mut out = String::with_capacity(raw.len());
+    let mut last = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for caps in re.captures_iter(raw) {
+        let m = caps.get(0).expect("group 0");
+        let before = &raw[last..m.start()];
+        out.push_str(before);
+        track_json_state(before, &mut in_string, &mut escaped);
+        let tag = m.as_str();
+        let resolved = resolve(tag);
+        let emitted = if resolved == tag {
+            // Unresolved: keep the literal tag, wrapped in quotes when it
+            // sits outside a string so the body still parses.
+            if in_string {
+                tag.to_string()
+            } else {
+                serde_json::to_string(tag).expect("string serializes")
+            }
+        } else if in_string {
+            json_string_body(&resolved)
+        } else {
+            serde_json::to_string(&resolved).expect("string serializes")
+        };
+        out.push_str(&emitted);
+        track_json_state(&emitted, &mut in_string, &mut escaped);
+        last = m.end();
+    }
+    out.push_str(&raw[last..]);
+    serde_json::from_str(&out).map_err(|e| e.to_string())
+}
+
+/// Tracks JSON string state over `text`: `in_string` toggles on unescaped
+/// quotes, `escaped` carries a backslash escape across chunks.
+fn track_json_state(text: &str, in_string: &mut bool, escaped: &mut bool) {
+    for ch in text.chars() {
+        if *escaped {
+            *escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if *in_string => *escaped = true,
+            '"' => *in_string = !*in_string,
+            _ => {}
+        }
+    }
+}
+
+/// Escapes `value` for interpolation inside an existing JSON string.
+fn json_string_body(value: &str) -> String {
+    let quoted = serde_json::to_string(value).expect("string serializes");
+    quoted[1..quoted.len() - 1].to_string()
+}
+
 fn finish_error(
     doc: &RequestDoc,
     template_url: &str,
@@ -954,6 +1043,7 @@ fn finish_error(
         request_path: request_path.clone(),
     };
     SendOutput {
+        captured: None,
         result: SendResult {
             request_id: uuid::Uuid::new_v4().to_string(),
             status: None,
@@ -1118,6 +1208,7 @@ mod tests {
             collection: None,
             workspace_doc: None,
             transient: &mut transient,
+            prev: None,
             http: HttpOptions::default(),
             secret_source: &FakeSecrets,
             request_path: None,
@@ -1154,6 +1245,7 @@ mod tests {
             collection: None,
             workspace_doc: None,
             transient: &mut transient,
+            prev: None,
             http: HttpOptions::default(),
             secret_source: &FakeSecrets,
             request_path: None,
@@ -1193,6 +1285,7 @@ mod tests {
             collection: None,
             workspace_doc: None,
             transient: &mut transient,
+            prev: None,
             http: HttpOptions::default(),
             secret_source: &FakeSecrets,
             request_path: None,
@@ -1212,5 +1305,64 @@ mod tests {
 
         assert!(out.result.error.is_some());
         assert_eq!(transient.get("token").map(String::as_str), Some("tok-1"));
+    }
+}
+
+#[cfg(test)]
+mod json_body_tests {
+    use super::*;
+
+    fn resolver(map: &[(&str, &str)]) -> impl FnMut(&str) -> String {
+        let map: Vec<(String, String)> = map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |tag: &str| {
+            map.iter()
+                .find(|(k, _)| k == tag)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| tag.to_string())
+        }
+    }
+
+    #[test]
+    fn bare_tag_outside_string_is_quoted() {
+        let raw = "{\n  \"password\": #{body.publicKey},\n  \"username\": \"CUST-1\"\n}";
+        let mut resolve = resolver(&[("#{body.publicKey}", "pk-1")]);
+        let v = substitute_json_tags(raw, &mut resolve).expect("parses");
+        assert_eq!(v["password"], "pk-1");
+        assert_eq!(v["username"], "CUST-1");
+    }
+
+    #[test]
+    fn resolved_value_with_quotes_and_newline_is_escaped() {
+        let raw = r##"{"password": "#{body.pk}"}"##;
+        let mut resolve = resolver(&[("#{body.pk}", "a\"b\nc")]);
+        let v = substitute_json_tags(raw, &mut resolve).expect("parses");
+        assert_eq!(v["password"], "a\"b\nc");
+    }
+
+    #[test]
+    fn unresolved_bare_tag_stays_literal() {
+        let raw = r#"{"password": #{body.pk}}"#;
+        let mut resolve = resolver(&[]);
+        let v = substitute_json_tags(raw, &mut resolve).expect("parses");
+        assert_eq!(v["password"], "#{body.pk}");
+    }
+
+    #[test]
+    fn var_inside_string_is_escaped() {
+        let raw = r##"{"tok": "{{token}}"}"##;
+        let mut resolve = resolver(&[("{{token}}", "x\"y")]);
+        let v = substitute_json_tags(raw, &mut resolve).expect("parses");
+        assert_eq!(v["tok"], "x\"y");
+    }
+
+    #[test]
+    fn genuinely_broken_json_still_errors() {
+        let raw = r#"{"a": }"#;
+        let mut resolve = resolver(&[]);
+        let err = substitute_json_tags(raw, &mut resolve).expect_err("errors");
+        assert!(err.contains("expected"), "{err}");
     }
 }

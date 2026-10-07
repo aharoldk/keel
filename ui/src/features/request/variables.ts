@@ -5,11 +5,12 @@ import { useKeel } from "@/state/store";
 export interface VariableSuggestion {
   name: string;
   /** Where the value comes from. */
-  source: "env" | "secret" | "collection" | "folder";
+  source: "env" | "secret" | "collection" | "folder" | "prev";
   /**
    * Value that would be used right now. Env variables use the local current
    * value when set, otherwise the committed default. Secrets never include a
-   * value — only the keychain holds the current one.
+   * value — only the keychain holds the current one. Prev refs never include
+   * a value either — a token in the last response must not leak into the UI.
    */
   value?: string;
 }
@@ -19,6 +20,7 @@ const SOURCE_RANK: Record<VariableSuggestion["source"], number> = {
   folder: 1,
   secret: 2,
   env: 3,
+  prev: 4,
 };
 
 /**
@@ -93,6 +95,17 @@ export async function gatherVariableSuggestions(
         .catch(() => {}),
     );
   }
+
+  await Promise.all(jobs);
+
+  // Previous-response tags (`#{body.path}`, `#{header.Name}`, `#{status}`).
+  // Paths only — values stay in the engine.
+  jobs.push(
+    api
+      .prevRefs()
+      .then((paths) => paths.forEach((p) => put(p, "prev")))
+      .catch(() => {}),
+  );
 
   await Promise.all(jobs);
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));

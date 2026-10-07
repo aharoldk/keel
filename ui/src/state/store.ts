@@ -114,6 +114,8 @@ interface KeelState {
   runnerStarting: boolean;
   /** Bumped after a send so an open environment editor reloads current values. */
   envValuesRevision: number;
+  /** Bumped after a send so `#{…}` previous-response suggestions refresh. */
+  prevRefsRevision: number;
 
   init: () => Promise<void>;
   setSidebarPanel: (p: SidebarPanel) => void;
@@ -255,6 +257,7 @@ export const useKeel = create<KeelState>((set, get) => ({
   runnerItems: [],
   runnerSummary: null,
   envValuesRevision: 0,
+  prevRefsRevision: 0,
   runnerStarting: false,
 
   async init() {
@@ -657,6 +660,7 @@ export const useKeel = create<KeelState>((set, get) => ({
           t.path === path ? { ...t, loading: false, result, error: null } : t,
         ),
         envValuesRevision: st.envValuesRevision + 1,
+        prevRefsRevision: st.prevRefsRevision + 1,
       }));
       const failed = result.error ?? result.testResults.find((r) => !r.passed);
       if (result.error) {

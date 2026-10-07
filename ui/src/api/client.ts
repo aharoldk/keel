@@ -79,6 +79,7 @@ export const api = {
     envName: string | null,
     doc?: RequestDoc | null,
   ) => invoke<SendResult>("send_request", { path, envName, doc }),
+  prevRefs: () => invoke<string[]>("prev_refs"),
 
   // history
   historyList: (limit?: number) =>

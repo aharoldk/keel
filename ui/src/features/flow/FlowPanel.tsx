@@ -434,7 +434,10 @@ export function FlowPanel() {
       publish(true, live);
       try {
         const result = await api.sendRequest(step.path, activeEnv);
-        useKeel.setState((st) => ({ envValuesRevision: st.envValuesRevision + 1 }));
+        useKeel.setState((st) => ({
+          envValuesRevision: st.envValuesRevision + 1,
+          prevRefsRevision: st.prevRefsRevision + 1,
+        }));
         const testsFailed = result.testResults.some((t) => !t.passed);
         const failed = Boolean(result.error) || !result.ok || testsFailed;
         live = {

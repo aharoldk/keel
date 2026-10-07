@@ -8,6 +8,8 @@ const VARS: VariableSuggestion[] = [
   { name: "baseUrl", source: "env", value: "https://xxxx" },
   { name: "apiKey", source: "secret" },
   { name: "timeout", source: "collection", value: "30" },
+  { name: "body.accessToken", source: "prev" },
+  { name: "header.X-Trace", source: "prev" },
 ];
 
 describe("VariableInput", () => {
@@ -98,6 +100,27 @@ describe("VariableInput", () => {
     expect(screen.queryByText("baseUrl")).toBeNull();
   });
 
+  it("shows previous-response refs after typing #{ and hides env vars", () => {
+    setup("");
+    const input = screen.getByPlaceholderText("url");
+    fireEvent.change(input, { target: { value: "#{", selectionStart: 2 } });
+    expect(screen.getByText("body.accessToken")).toBeTruthy();
+    expect(screen.getByText("header.X-Trace")).toBeTruthy();
+    expect(screen.queryByText("baseUrl")).toBeNull();
+  });
+
+  it("inserts a #{…} tag with closing brace on Enter", () => {
+    function Host() {
+      const [v, setV] = useState("");
+      return <VariableInput value={v} onChange={setV} variables={VARS} placeholder="url" />;
+    }
+    render(<Host />);
+    const input = screen.getByPlaceholderText("url") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "#{body", selectionStart: 6 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("#{body.accessToken}");
+  });
+
   describe("highlight layer", () => {
     function spanFor(container: HTMLElement, text: string) {
       return [...container.querySelectorAll("[aria-hidden] span")].find(
@@ -123,6 +146,12 @@ describe("VariableInput", () => {
       const { container } = setup("https://{{baseUrl}}/users {{");
       expect(spanFor(container, "https://")?.style.color).toBe("");
       expect(spanFor(container, "/users {{")?.style.color).toBe("");
+    });
+
+    it("colors previous-response tags with the prev color", () => {
+      const { container } = setup("Bearer #{body.accessToken}");
+      const tag = spanFor(container, "#{body.accessToken}");
+      expect(tag?.style.color).toBe("var(--method-patch)");
     });
   });
 

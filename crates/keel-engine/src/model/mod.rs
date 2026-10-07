@@ -36,6 +36,17 @@ pub struct ResponseCtx {
     pub json: Option<serde_json::Value>,
 }
 
+/// The last completed HTTP response, kept in memory so the next request can
+/// read it with `#{body.path}`, `#{header.Name}`, `#{status}` tags.
+/// Never persisted — no env file, YAML, history, or git.
+#[derive(Debug, Clone, Default)]
+pub struct PrevResponse {
+    pub status: Option<i64>,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+    pub json: Option<serde_json::Value>,
+}
+
 // ---------- IPC DTOs ----------
 
 #[derive(Debug, Clone, Serialize)]

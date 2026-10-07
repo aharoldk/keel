@@ -87,6 +87,7 @@ async fn open_send_chain_commit() {
         collection: Some(&collection),
         workspace_doc: Some(&ws_doc),
         transient: &mut transient,
+        prev: None,
         http: HttpOptions::default(),
         secret_source: &FakeSecrets,
         request_path: Some(login_path.clone()),
@@ -130,6 +131,7 @@ async fn open_send_chain_commit() {
         collection: Some(&collection),
         workspace_doc: Some(&ws_doc),
         transient: &mut transient,
+        prev: None,
         http: HttpOptions::default(),
         secret_source: &FakeSecrets,
         request_path: Some(login_path.clone()),
@@ -179,6 +181,7 @@ async fn open_send_chain_commit() {
         collection: Some(&collection),
         workspace_doc: Some(&ws_doc),
         transient: &mut transient,
+        prev: None,
         http: HttpOptions::default(),
         secret_source: &FakeSecrets,
         request_path: None,
@@ -210,6 +213,257 @@ fn test_assertion(expect: &str, matcher: &str, expected: serde_json::Value) -> T
         expect: expect.to_string(),
         matcher: m,
     }
+}
+
+/// Previous-response tags: the second send reads the first response's body
+/// and headers via `#{body.accessToken}` / `#{header.X-Trace}` — no scripts.
+#[tokio::test]
+async fn prev_response_tags_chain_across_sends() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let root = tmp.path().join("prev-tags");
+
+    let info = workspace::init_workspace(&root, "Prev Tags").expect("init");
+    assert!(!info.has_git);
+
+    let login_path = workspace::create_request(&root, "auth", "Login").expect("create");
+    let mut login = workspace::read_request(&root, &login_path).expect("read");
+    login.request.method = HttpMethod::POST;
+    login.request.url = "{{baseUrl}}/auth/login".into();
+    login.request.body = Some(Body {
+        body_type: BodyType::Json,
+        content: Some(r#"{"user":"ada"}"#.into()),
+        ..Body::default()
+    });
+    workspace::save_request(&root, &login_path, &login).expect("save");
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/auth/login"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .insert_header("X-Trace", "t1")
+                .set_body_json(serde_json::json!({"accessToken": "tok-1"})),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/me"))
+        .and(wiremock::matchers::header("Authorization", "Bearer tok-1"))
+        .and(wiremock::matchers::header("X-Trace", "t1"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({"user": "ada"})),
+        )
+        .mount(&server)
+        .await;
+
+    let mut env = workspace::env_read(&root, "local.yaml").expect("env");
+    env.variables
+        .as_mut()
+        .expect("vars")
+        .insert("baseUrl".into(), server.uri());
+
+    let collection = workspace::load_collection(&root).expect("collection");
+    let ws_doc = workspace::load_workspace_doc(&root);
+    let oauth_cache = std::sync::Arc::new(keel_lib::auth::oauth2::Oauth2Cache::default());
+    let noop_browser = |_: &str| -> Result<(), String> { Ok(()) };
+    let oauth_cache = &*oauth_cache;
+    let mut transient = BTreeMap::new();
+
+    let login_output = send(SendInput {
+        doc: &login,
+        env_label: Some("local".into()),
+        env: Some(&env),
+        collection: Some(&collection),
+        workspace_doc: Some(&ws_doc),
+        transient: &mut transient,
+        prev: None,
+        http: HttpOptions::default(),
+        secret_source: &FakeSecrets,
+        request_path: Some(login_path.clone()),
+        collection_vars: Default::default(),
+        folder_vars: Default::default(),
+        env_values: Default::default(),
+        env_file: None,
+        workspace_root: None,
+        oauth_cache,
+        open_browser: &noop_browser,
+        cookie_jar: None,
+        send_cookies: false,
+        store_cookies: false,
+        iteration_vars: Default::default(),
+    })
+    .await;
+    assert!(login_output.result.error.is_none(), "{:?}", login_output.result.error);
+    let captured = login_output.captured.expect("captured response");
+
+    let mut me = login.clone();
+    me.request.method = HttpMethod::GET;
+    me.request.url = "{{baseUrl}}/me".into();
+    me.request.body = None;
+    me.scripts = None;
+    me.tests = None;
+    me.request.headers = Some(vec![
+        KV {
+            name: "Authorization".into(),
+            value: "Bearer #{body.accessToken}".into(),
+            enabled: true,
+            kind: None,
+        },
+        KV {
+            name: "X-Trace".into(),
+            value: "#{header.X-Trace}".into(),
+            enabled: true,
+            kind: None,
+        },
+    ]);
+
+    let me_output = send(SendInput {
+        doc: &me,
+        env_label: Some("local".into()),
+        env: Some(&env),
+        collection: Some(&collection),
+        workspace_doc: Some(&ws_doc),
+        transient: &mut transient,
+        prev: Some(&captured),
+        http: HttpOptions::default(),
+        secret_source: &FakeSecrets,
+        request_path: Some("auth/me.yaml".into()),
+        collection_vars: Default::default(),
+        folder_vars: Default::default(),
+        env_values: Default::default(),
+        env_file: None,
+        workspace_root: None,
+        oauth_cache,
+        open_browser: &noop_browser,
+        cookie_jar: None,
+        send_cookies: false,
+        store_cookies: false,
+        iteration_vars: Default::default(),
+    })
+    .await;
+    assert!(me_output.result.error.is_none(), "{:?}", me_output.result.error);
+    assert_eq!(me_output.result.status, Some(200));
+    assert!(me_output.result.missing_variables.is_empty(), "{:?}", me_output.result.missing_variables);
+}
+
+/// `#{…}` tags inside a JSON request body: the password below is filled from
+/// the previous response's `publicKey` at send time.
+#[tokio::test]
+async fn prev_response_tag_inside_json_body() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let root = tmp.path().join("body-tags");
+
+    let info = workspace::init_workspace(&root, "Body Tags").expect("init");
+    assert!(!info.has_git);
+
+    let login_path = workspace::create_request(&root, "auth", "Challenge").expect("create");
+    let mut challenge = workspace::read_request(&root, &login_path).expect("read");
+    challenge.request.method = HttpMethod::POST;
+    challenge.request.url = "{{baseUrl}}/challenge".into();
+    workspace::save_request(&root, &login_path, &challenge).expect("save");
+
+    let auth_path = workspace::create_request(&root, "auth", "Authenticate").expect("create");
+    let mut auth = workspace::read_request(&root, &auth_path).expect("read");
+    auth.request.method = HttpMethod::POST;
+    auth.request.url = "{{baseUrl}}/authenticate".into();
+    auth.request.body = Some(Body {
+        body_type: BodyType::Json,
+        // Bare (unquoted) tag — the engine wraps it in quotes at send time.
+        content: Some(
+            "{\n  \"clientid\": \"CUST-LOCAL-1:device-1\",\n  \"password\": #{body.publicKey},\n  \"username\": \"CUST-LOCAL-1\"\n}"
+                .into(),
+        ),
+        ..Body::default()
+    });
+    workspace::save_request(&root, &auth_path, &auth).expect("save");
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/challenge"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_json(serde_json::json!({"publicKey": "pk-1"})),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/authenticate"))
+        .and(wiremock::matchers::body_string_contains("\"password\":\"pk-1\""))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})),
+        )
+        .mount(&server)
+        .await;
+
+    let mut env = workspace::env_read(&root, "local.yaml").expect("env");
+    env.variables
+        .as_mut()
+        .expect("vars")
+        .insert("baseUrl".into(), server.uri());
+
+    let collection = workspace::load_collection(&root).expect("collection");
+    let ws_doc = workspace::load_workspace_doc(&root);
+    let oauth_cache = std::sync::Arc::new(keel_lib::auth::oauth2::Oauth2Cache::default());
+    let noop_browser = |_: &str| -> Result<(), String> { Ok(()) };
+    let oauth_cache = &*oauth_cache;
+    let mut transient = BTreeMap::new();
+
+    let challenge_output = send(SendInput {
+        doc: &challenge,
+        env_label: Some("local".into()),
+        env: Some(&env),
+        collection: Some(&collection),
+        workspace_doc: Some(&ws_doc),
+        transient: &mut transient,
+        prev: None,
+        http: HttpOptions::default(),
+        secret_source: &FakeSecrets,
+        request_path: Some(login_path.clone()),
+        collection_vars: Default::default(),
+        folder_vars: Default::default(),
+        env_values: Default::default(),
+        env_file: None,
+        workspace_root: None,
+        oauth_cache,
+        open_browser: &noop_browser,
+        cookie_jar: None,
+        send_cookies: false,
+        store_cookies: false,
+        iteration_vars: Default::default(),
+    })
+    .await;
+    assert!(challenge_output.result.error.is_none(), "{:?}", challenge_output.result.error);
+    let captured = challenge_output.captured.expect("captured response");
+
+    // The body request only matches when `#{body.publicKey}` resolved to pk-1.
+    let auth_output = send(SendInput {
+        doc: &auth,
+        env_label: Some("local".into()),
+        env: Some(&env),
+        collection: Some(&collection),
+        workspace_doc: Some(&ws_doc),
+        transient: &mut transient,
+        prev: Some(&captured),
+        http: HttpOptions::default(),
+        secret_source: &FakeSecrets,
+        request_path: Some(auth_path.clone()),
+        collection_vars: Default::default(),
+        folder_vars: Default::default(),
+        env_values: Default::default(),
+        env_file: None,
+        workspace_root: None,
+        oauth_cache,
+        open_browser: &noop_browser,
+        cookie_jar: None,
+        send_cookies: false,
+        store_cookies: false,
+        iteration_vars: Default::default(),
+    })
+    .await;
+    assert!(auth_output.result.error.is_none(), "{:?}", auth_output.result.error);
+    assert_eq!(auth_output.result.status, Some(200), "body tag did not resolve");
 }
 
 #[allow(unused)]

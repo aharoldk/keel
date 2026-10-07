@@ -64,6 +64,7 @@ pub fn run() {
             commands::secret_delete,
             commands::secret_list,
             commands::send_request,
+            commands::prev_refs,
             commands::history_list,
             commands::history_clear,
             commands::history_pins,

@@ -20,6 +20,8 @@ pub struct AppState {
     pub settings: RwLock<AppSettings>,
     /// Session variables set by scripts (in-memory only, never persisted).
     pub transient: Mutex<BTreeMap<String, String>>,
+    /// Last completed response, for `#{…}` previous-response tags.
+    pub prev: Mutex<Option<crate::model::PrevResponse>>,
     pub config_dir: PathBuf,
     /// OAuth2 token cache (in-memory only — never written to disk/git).
     pub oauth_cache: Oauth2Cache,
@@ -42,6 +44,7 @@ impl AppState {
             workspace: Mutex::new(None),
             settings: RwLock::new(settings),
             transient: Mutex::new(BTreeMap::new()),
+            prev: Mutex::new(None),
             config_dir,
             oauth_cache: Oauth2Cache(std::sync::Mutex::new(HashMap::new())),
             cookie_jar: StdMutex::new(CookieJar::new()),

@@ -11,6 +11,11 @@
 //! the default value committed in the environment file. Secret values are
 //! reported separately in [`Resolved::secrets`] so callers can keep them out
 //! of history, logs and exports.
+//!
+//! Previous-response tags use `#{...}`: `#{body.path}`, `#{header.Name}`,
+//! `#{status}`, `#{body}`. They resolve against the in-memory previous
+//! response before `{{name}}` runs, so a request can chain off the one sent
+//! before it without scripts or environment picking.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
@@ -98,6 +103,140 @@ pub struct Resolved {
     pub missing: Vec<String>,
     /// Names resolved from the [`SecretSource`].
     pub secrets: Vec<String>,
+}
+
+/// Substitutes `#{status}`, `#{body}`, `#{body.path}` and `#{header.Name}`
+/// from the previous response. Unresolvable tags (no previous response, a
+/// missing path, a non-JSON body with a path) are left exactly as written,
+/// matching the `{{missing}}` behaviour.
+pub fn apply_prev_refs(template: &str, prev: Option<&crate::model::PrevResponse>) -> String {
+    apply_prev_refs_report(template, prev, &mut Vec::new())
+}
+
+/// Like [`apply_prev_refs`], but tag names that could not be resolved are
+/// appended to `missing` (without duplicates) so they can be surfaced as
+/// `missing_variables` in the result.
+pub fn apply_prev_refs_report(
+    template: &str,
+    prev: Option<&crate::model::PrevResponse>,
+    missing: &mut Vec<String>,
+) -> String {
+    if !template.contains("#{") {
+        return template.to_string();
+    }
+    let re = Regex::new(r"#\{([^{}#]+)\}").expect("static regex");
+    let mut out = String::with_capacity(template.len());
+    let mut last = 0usize;
+    for caps in re.captures_iter(template) {
+        let m = caps.get(0).expect("group 0");
+        let spec = caps.get(1).expect("group 1").as_str().trim();
+        out.push_str(&template[last..m.start()]);
+        last = m.end();
+        let value = prev.and_then(|p| prev_value(p, spec));
+        match value {
+            Some(value) => out.push_str(&value),
+            None => {
+                if !missing.iter().any(|n| n == spec) {
+                    missing.push(spec.to_string());
+                }
+                out.push_str(m.as_str());
+            }
+        }
+    }
+    out.push_str(&template[last..]);
+    out
+}
+
+fn prev_value(prev: &crate::model::PrevResponse, spec: &str) -> Option<String> {
+    if spec == "status" {
+        return prev.status.map(|s| s.to_string());
+    }
+    if spec == "body" {
+        return prev.body.clone();
+    }
+    if let Some(path) = spec.strip_prefix("body.") {
+        let json = prev.json.as_ref()?;
+        let value = crate::engine::script::json_path(json, path)?;
+        return Some(json_scalar_string(value));
+    }
+    if let Some(name) = spec.strip_prefix("header.") {
+        return prev
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.clone());
+    }
+    None
+}
+
+fn json_scalar_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                i.to_string()
+            } else if let Some(u) = n.as_u64() {
+                u.to_string()
+            } else {
+                n.to_string()
+            }
+        }
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// Suggestion paths for the editor's `#` dropdown: `status`, `body`, every
+/// JSON leaf under `body.*`, and each `header.Name`. Values are never
+/// included — a secret token in a previous response must not leak into the UI.
+pub fn prev_ref_paths(prev: &crate::model::PrevResponse) -> Vec<String> {
+    let mut out = vec!["status".to_string(), "body".to_string()];
+    if let Some(json) = &prev.json {
+        collect_json_paths(json, "body", &mut out, 0);
+    }
+    let mut seen = BTreeSet::new();
+    for (name, _) in &prev.headers {
+        let lower = name.to_ascii_lowercase();
+        if seen.insert(lower) {
+            out.push(format!("header.{name}"));
+        }
+    }
+    out
+}
+
+fn collect_json_paths(value: &serde_json::Value, prefix: &str, out: &mut Vec<String>, depth: usize) {
+    if depth > 6 || out.len() >= 80 {
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                if k.contains('.') || k.contains('{') || k.contains('}') || k.contains('#') {
+                    continue;
+                }
+                let path = format!("{prefix}.{k}");
+                match v {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        collect_json_paths(v, &path, out, depth + 1);
+                    }
+                    _ => out.push(path),
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (i, v) in items.iter().take(8).enumerate() {
+                let path = format!("{prefix}.{i}");
+                match v {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        collect_json_paths(v, &path, out, depth + 1);
+                    }
+                    _ => out.push(path),
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Backend that provides current secret values, e.g. the OS keychain.
@@ -245,6 +384,90 @@ fn builtin_value(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn prev_with(body: &str) -> crate::model::PrevResponse {
+        crate::model::PrevResponse {
+            status: Some(200),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("X-Trace".to_string(), "t1".to_string()),
+            ],
+            body: Some(body.to_string()),
+            json: serde_json::from_str(body).ok(),
+        }
+    }
+
+    #[test]
+    fn prev_body_path_and_scalars() {
+        let prev = prev_with(r#"{"accessToken":"tok-1","id":7,"ok":true}"#);
+        let t = apply_prev_refs("Bearer #{body.accessToken}", Some(&prev));
+        assert_eq!(t, "Bearer tok-1");
+        assert_eq!(apply_prev_refs("#{body.id}", Some(&prev)), "7");
+        assert_eq!(apply_prev_refs("#{body.ok}", Some(&prev)), "true");
+        assert_eq!(apply_prev_refs("#{body}", Some(&prev)), r#"{"accessToken":"tok-1","id":7,"ok":true}"#);
+    }
+
+    #[test]
+    fn prev_nested_path_with_arrays() {
+        let prev = prev_with(r#"{"data":{"items":[{"id":7}]}}"#);
+        assert_eq!(apply_prev_refs("#{body.data.items.0.id}", Some(&prev)), "7");
+        assert_eq!(apply_prev_refs("#{body.data.missing}", Some(&prev)), "#{body.data.missing}");
+    }
+
+    #[test]
+    fn prev_headers_and_status() {
+        let prev = prev_with("{}");
+        assert_eq!(apply_prev_refs("#{header.Content-Type}", Some(&prev)), "application/json");
+        assert_eq!(apply_prev_refs("#{header.x-trace}", Some(&prev)), "t1");
+        assert_eq!(apply_prev_refs("#{header.Nope}", Some(&prev)), "#{header.Nope}");
+        assert_eq!(apply_prev_refs("#{status}", Some(&prev)), "200");
+    }
+
+    #[test]
+    fn prev_missing_prev_response_leaves_tags() {
+        let t = apply_prev_refs("#{body.accessToken}/x", None);
+        assert_eq!(t, "#{body.accessToken}/x");
+    }
+
+    #[test]
+    fn prev_non_json_body_with_path_left_as_is() {
+        let prev = crate::model::PrevResponse {
+            status: Some(500),
+            headers: vec![],
+            body: Some("not json".to_string()),
+            json: None,
+        };
+        assert_eq!(apply_prev_refs("#{body.x}", Some(&prev)), "#{body.x}");
+        assert_eq!(apply_prev_refs("#{body}", Some(&prev)), "not json");
+    }
+
+    #[test]
+    fn prev_ref_paths_lists_leaf_paths_and_headers() {
+        let prev = prev_with(r#"{"data":{"user":"ada","items":[{"id":1}]}}"#);
+        let paths = prev_ref_paths(&prev);
+        assert!(paths.contains(&"status".to_string()));
+        assert!(paths.contains(&"body".to_string()));
+        assert!(paths.contains(&"body.data.user".to_string()));
+        assert!(paths.contains(&"body.data.items.0.id".to_string()));
+        assert!(paths.contains(&"header.content-type".to_string()));
+        assert!(!paths.iter().any(|p| p.contains("ada")));
+    }
+
+    #[test]
+    fn prev_ref_report_collects_unresolved_without_duplicates() {
+        // No previous response: every tag is reported, output unchanged.
+        let mut missing = Vec::new();
+        let out = apply_prev_refs_report("#{body.a} #{body.a} #{status}", None, &mut missing);
+        assert_eq!(out, "#{body.a} #{body.a} #{status}");
+        assert_eq!(missing, vec!["body.a".to_string(), "status".to_string()]);
+
+        // With a response: only the failing path is reported.
+        let prev = prev_with(r#"{"ok":1}"#);
+        let mut missing = Vec::new();
+        let out = apply_prev_refs_report("#{body.ok} #{body.nope}", Some(&prev), &mut missing);
+        assert_eq!(out, "1 #{body.nope}");
+        assert_eq!(missing, vec!["body.nope".to_string()]);
+    }
 
     fn stack(maps: &[&[(&str, &str)]]) -> ScopeStack {
         let mut stack = ScopeStack::default();

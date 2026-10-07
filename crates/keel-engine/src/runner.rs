@@ -288,6 +288,8 @@ pub async fn run_folder(
 
     // Session variables shared across the whole run (scripts may set them).
     let mut transient: BTreeMap<String, String> = BTreeMap::new();
+    // Last response inside the run, so `#{…}` tags chain across steps.
+    let mut prev: Option<crate::model::PrevResponse> = None;
     let passes = iterations.len();
     let total = n.saturating_mul(passes);
     let mut statuses: Vec<Option<(RunnerItemDto, &'static str)>> = vec![None; total];
@@ -321,6 +323,7 @@ pub async fn run_folder(
             collection: collection.as_ref(),
             workspace_doc: Some(&workspace_doc),
             transient: &mut transient,
+            prev: prev.as_ref(),
             http: env.http.clone(),
             secret_source: &*secret_source,
             request_path: Some(rel.clone()),
@@ -340,6 +343,9 @@ pub async fn run_folder(
             store_cookies: env.store_cookies,
         };
         let output = send::send(input).await;
+        if let Some(captured) = output.captured {
+            prev = Some(captured);
+        }
         if let Some(record) = &output.history {
             let _ = history::append(&env.root, record);
         }

@@ -1,6 +1,15 @@
 import { useMemo, useRef } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  keymap,
+  placeholder as cmPlaceholder,
+  ViewPlugin,
+  type ViewUpdate,
+} from "@codemirror/view";
+import type { Range } from "@codemirror/state";
 import { redo, redoDepth, selectAll, undo, undoDepth } from "@codemirror/commands";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type { Extension } from "@codemirror/state";
@@ -46,19 +55,29 @@ const jsonLinter = linter((view) => {
   const diags: Diagnostic[] = [];
   if (!text.trim()) return diags;
   try {
+    // Tags inside JSON strings (`"password": "#{body.x}"`) parse as-is.
     JSON.parse(text);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const m = /position (\d+)/i.exec(msg);
-    let pos = m ? Number(m[1]) : 0;
-    if (!Number.isFinite(pos) || pos < 0) pos = 0;
-    pos = Math.min(pos, Math.max(0, text.length - 1));
-    diags.push({
-      from: pos,
-      to: Math.min(pos + 1, text.length),
-      severity: "error",
-      message: msg,
-    });
+    try {
+      // A bare `#{…}` tag outside a string is mid-edit: mask it with a
+      // same-length quoted placeholder so error positions stay accurate.
+      JSON.parse(
+        text.replace(/#\{[^{}#]*\}/g, (m) => `"${".".repeat(Math.max(0, m.length - 2))}"`),
+      );
+      return diags;
+    } catch {
+      const msg = e instanceof Error ? e.message : String(e);
+      const m = /position (\d+)/i.exec(msg);
+      let pos = m ? Number(m[1]) : 0;
+      if (!Number.isFinite(pos) || pos < 0) pos = 0;
+      pos = Math.min(pos, Math.max(0, text.length - 1));
+      diags.push({
+        from: pos,
+        to: Math.min(pos + 1, text.length),
+        severity: "error",
+        message: msg,
+      });
+    }
   }
   return diags;
 });
@@ -98,25 +117,70 @@ const SOURCE_LABEL: Record<VariableSuggestion["source"], string> = {
   secret: "secret",
   collection: "collection",
   folder: "folder",
+  prev: "prev",
 };
 
-/** `{{` triggers completion of the known variable names. */
+/** Colors `#{…}` previous-response tags with the patch accent. */
+function highlightPrevTags(): ViewPlugin<{ decorations: DecorationSet }> {
+  const make = (text: string) => {
+    const ranges: Range<Decoration>[] = [];
+    const re = /#\{([^{}#]*)\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      ranges.push(
+        Decoration.mark({ attributes: { style: "color: var(--method-patch)" } }).range(
+          m.index,
+          m.index + m[0].length,
+        ),
+      );
+    }
+    return Decoration.set(ranges);
+  };
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = make(view.state.doc.toString());
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged) this.decorations = make(update.state.doc.toString());
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
+}
+
+/** `{{` triggers variable completion, `#{` triggers previous-response refs. */
 function variableCompletion(variables: VariableSuggestion[] | undefined): Extension | null {
   if (!variables || variables.length === 0) return null;
-  const options: Completion[] = variables.map((v) => ({
+  const braces = variables.filter((v) => v.source !== "prev");
+  const prevs = variables.filter((v) => v.source === "prev");
+  if (braces.length === 0 && prevs.length === 0) return null;
+  const braceOptions: Completion[] = braces.map((v) => ({
     label: v.name,
     detail: [SOURCE_LABEL[v.source], v.value].filter((s) => s).join(" · "),
     apply: `${v.name}}}`,
     type: v.source === "secret" ? "keyword" : "variable",
     boost: v.source === "env" ? 10 : v.source === "folder" ? 5 : 0,
   }));
+  const prevOptions: Completion[] = prevs.map((v) => ({
+    label: v.name,
+    detail: "previous response",
+    apply: `${v.name}}}`,
+    type: "property",
+  }));
   return autocompletion({
     icons: false,
     override: [
       (ctx: CompletionContext): CompletionResult | null => {
         const before = ctx.matchBefore(/\{\{[^{}]*/);
-        if (!before) return null;
-        return { from: before.from + 2, options, validFor: /^[^{}]*$/ };
+        if (!before || braceOptions.length === 0) return null;
+        return { from: before.from + 2, options: braceOptions, validFor: /^[^{}]*$/ };
+      },
+      (ctx: CompletionContext): CompletionResult | null => {
+        const before = ctx.matchBefore(/#\{[^{}#]*/);
+        if (!before || prevOptions.length === 0) return null;
+        return { from: before.from + 2, options: prevOptions, validFor: /^[^{}#]*$/ };
       },
     ],
   });
@@ -450,6 +514,7 @@ export default function CodeEditor({
     ];
     const completion = variableCompletion(variables);
     if (completion) exts.push(completion);
+    exts.push(highlightPrevTags());
     if (language === "json") exts.push(json(), jsonLinter);
     else if (language === "yaml") exts.push(yaml());
     else if (language === "javascript") exts.push(javascript());

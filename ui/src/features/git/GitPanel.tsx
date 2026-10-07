@@ -8,6 +8,7 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
 import { api } from "@/api/client";
 import type { GitCommit, GitEntryStatus } from "@/api/types";
@@ -48,6 +49,7 @@ export function GitPanel() {
   const [remoteOpen, setRemoteOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [busy, setBusy] = useState<"pull" | "push" | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const loadCommits = async () => {
     try {
@@ -128,6 +130,24 @@ export function GitPanel() {
       .gitDiffCommit(commit.oid)
       .then((text) => openGitDiff(`commit:${commit.oid}`, title, text))
       .catch((err) => toast(String(err), "error"));
+  };
+
+  const generateMessage = async () => {
+    if (generating || staged.length === 0) return;
+    setGenerating(true);
+    try {
+      const diff = await api.gitStagedDiff();
+      const text = await api.aiGenerate(
+        "commit",
+        "Write a commit message for this staged diff.",
+        diff,
+      );
+      setMessage(text.trim());
+    } catch (e) {
+      toast(String(e), "error");
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const doCommit = async () => {
@@ -358,6 +378,15 @@ export function GitPanel() {
           }}
           className="w-full h-auto rounded bg-bg-2 border border-line-0 px-2 py-1.5 text-xs text-fg-0 outline-none focus:border-line-focus placeholder:text-fg-2 resize-none"
         />
+        <Button
+          variant="ghost"
+          className="w-full"
+          disabled={staged.length === 0 || generating}
+          onClick={() => void generateMessage()}
+        >
+          <Sparkles size={13} />
+          {generating ? "Generating…" : "Generate message"}
+        </Button>
         <Button
           variant="primary"
           className="w-full"

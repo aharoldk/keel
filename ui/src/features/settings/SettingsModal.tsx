@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, FolderOpen } from "lucide-react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { api } from "@/api/client";
 import type { AppSettings, ShortcutAction } from "@/api/types";
 import { Button, IconButton, Modal, Select, TextInput } from "@/components/ui";
 import {
@@ -74,11 +75,23 @@ export function SettingsModal() {
 
   const [tab, setTab] = useState<SettingsTab>("general");
   const [draft, setDraft] = useState<AppSettings>(useKeel.getState().settings);
+  const [aiKey, setAiKey] = useState("");
+  const [aiKeySet, setAiKeySet] = useState(false);
+  const [clearAiKey, setClearAiKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (settingsOpen) {
       setDraft({ ...useKeel.getState().settings });
       setTab("general");
+      setAiKey("");
+      setClearAiKey(false);
+      setTestResult(null);
+      api
+        .aiStatus()
+        .then((s) => setAiKeySet(s.configured))
+        .catch(() => setAiKeySet(false));
     }
   }, [settingsOpen]);
 
@@ -103,6 +116,24 @@ export function SettingsModal() {
     patch({ shortcuts });
   };
 
+  const testConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      await api.aiTest({
+        provider: draft.aiProvider ?? "off",
+        model: draft.aiModel?.trim() || "gpt-4o",
+        baseUrl: draft.aiBaseUrl?.trim() ? draft.aiBaseUrl.trim() : null,
+        key: clearAiKey ? null : aiKey.trim() || null,
+      });
+      setTestResult({ ok: true, text: "Connected" });
+    } catch (e) {
+      setTestResult({ ok: false, text: String(e) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const save = async () => {
     const next: AppSettings = {
       ...draft,
@@ -119,7 +150,12 @@ export function SettingsModal() {
       autoSave: draft.autoSave ?? false,
       autoSaveInterval: Math.max(100, Math.round(draft.autoSaveInterval ?? 1000) || 1000),
       shortcuts: draft.shortcuts ?? {},
+      aiProvider: draft.aiProvider ?? "off",
+      aiModel: draft.aiModel?.trim() || "gpt-4o",
+      aiBaseUrl: draft.aiBaseUrl?.trim() ? draft.aiBaseUrl.trim() : null,
     };
+    if (clearAiKey) await api.aiKeyClear();
+    else if (aiKey.trim()) await api.aiKeySet(aiKey.trim());
     await saveSettings(next);
     setSettingsOpen(false);
   };
@@ -338,7 +374,91 @@ export function SettingsModal() {
         )}
 
         {tab === "ai" && (
-          <p className="text-xs text-fg-2">AI is coming in the next release.</p>
+          <div className="flex flex-col gap-3">
+            <Row label="Provider">
+              <Select
+                className="w-36"
+                aria-label="AI provider"
+                value={draft.aiProvider ?? "off"}
+                onChange={(e) =>
+                  patch({ aiProvider: e.target.value as NonNullable<AppSettings["aiProvider"]> })
+                }
+              >
+                <option value="off">Off</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="custom">Custom</option>
+              </Select>
+            </Row>
+            {(draft.aiProvider ?? "off") !== "off" && (
+              <>
+                <Row label="Model">
+                  <TextInput
+                    className="flex-1 min-w-0 font-mono"
+                    aria-label="AI model"
+                    placeholder={
+                      draft.aiProvider === "anthropic" ? "claude-sonnet-4-5" : "gpt-4o"
+                    }
+                    value={draft.aiModel ?? ""}
+                    onChange={(e) => patch({ aiModel: e.target.value })}
+                  />
+                </Row>
+                {draft.aiProvider === "custom" && (
+                  <Row label="Base URL">
+                    <TextInput
+                      className="flex-1 min-w-0 font-mono"
+                      aria-label="AI base URL"
+                      placeholder="https://api.example.com/v1"
+                      value={draft.aiBaseUrl ?? ""}
+                      onChange={(e) => patch({ aiBaseUrl: e.target.value || null })}
+                    />
+                  </Row>
+                )}
+                <Row label="API key">
+                  <TextInput
+                    className="flex-1 min-w-0 font-mono"
+                    type="password"
+                    aria-label="AI API key"
+                    placeholder={
+                      clearAiKey
+                        ? "Key will be removed"
+                        : aiKeySet
+                          ? "Saved — enter a new key to replace"
+                          : "sk-…"
+                    }
+                    value={aiKey}
+                    disabled={clearAiKey}
+                    onChange={(e) => setAiKey(e.target.value)}
+                  />
+                </Row>
+                {aiKeySet && (
+                  <Checkbox
+                    checked={clearAiKey}
+                    onChange={setClearAiKey}
+                    label="Remove saved API key"
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    disabled={testing || clearAiKey}
+                    onClick={() => void testConnection()}
+                  >
+                    {testing ? "Testing…" : "Test connection"}
+                  </Button>
+                  {testResult && (
+                    <span className={cn("text-[10px]", testResult.ok ? "text-ok" : "text-danger")}>
+                      {testResult.text}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-fg-2">
+                  The key is stored in the OS keychain, not in settings. Custom uses an
+                  OpenAI-compatible chat endpoint.
+                </p>
+              </>
+            )}
+          </div>
         )}
 
         {tab === "workspace" && (

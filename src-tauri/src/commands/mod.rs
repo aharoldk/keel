@@ -607,6 +607,11 @@ pub async fn git_diff_commit(oid: String, ctx: Ctx<'_>) -> Result<String, String
 }
 
 #[tauri::command]
+pub async fn git_staged_diff(ctx: Ctx<'_>) -> Result<String, String> {
+    with_workspace(&ctx, gitutil::staged_diff).await
+}
+
+#[tauri::command]
 pub async fn git_branches(ctx: Ctx<'_>) -> Result<Vec<String>, String> {
     with_workspace(&ctx, gitutil::branches).await
 }
@@ -1093,6 +1098,29 @@ pub struct AiGenerateArgs {
     pub context: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiTestArgs {
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Unsaved key from the settings form. Empty uses the keychain.
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+#[tauri::command]
+pub async fn ai_test(args: AiTestArgs) -> Result<(), String> {
+    let settings = crate::settings::AppSettings {
+        ai_provider: args.provider,
+        ai_model: args.model,
+        ai_base_url: args.base_url,
+        ..crate::settings::AppSettings::default()
+    };
+    crate::ai::test_connection(&settings, args.key.as_deref()).await
+}
+
 #[tauri::command]
 pub async fn ai_generate(args: AiGenerateArgs, ctx: Ctx<'_>) -> Result<String, String> {
     let settings = ctx.settings.read().await.clone();
@@ -1165,6 +1193,18 @@ pub async fn flow_import(path: String, folder: Option<String>, ctx: Ctx<'_>) -> 
     }
     with_workspace(&ctx, |root| {
         workspace::flow_import(root, std::path::Path::new(&path), folder.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn export_environment(
+    file_name: String,
+    format: String,
+    ctx: Ctx<'_>,
+) -> Result<String, String> {
+    with_workspace(&ctx, |root| {
+        workspace::export_environment(root, &file_name, &format)
     })
     .await
 }

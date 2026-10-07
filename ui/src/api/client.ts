@@ -98,6 +98,7 @@ export const api = {
   gitInit: () => invoke<void>("git_init"),
   gitDiffFile: (path: string) => invoke<string>("git_diff_file", { path }),
   gitDiffCommit: (oid: string) => invoke<string>("git_diff_commit", { oid }),
+  gitStagedDiff: () => invoke<string>("git_staged_diff"),
   gitBranches: () => invoke<string[]>("git_branches"),
   gitCheckout: (name: string) => invoke<void>("git_checkout", { name }),
   gitCreateBranch: (name: string) => invoke<void>("git_create_branch", { name }),
@@ -205,8 +206,14 @@ export const api = {
   aiStatus: () => invoke<{ configured: boolean }>("ai_status"),
   aiKeySet: (key: string) => invoke<void>("ai_key_set", { key }),
   aiKeyClear: () => invoke<void>("ai_key_clear"),
+  aiTest: (args: {
+    provider: string;
+    model: string;
+    baseUrl?: string | null;
+    key?: string | null;
+  }) => invoke<void>("ai_test", { args }),
   aiGenerate: (
-    kind: "script" | "test" | "docs" | "request",
+    kind: "script" | "test" | "docs" | "request" | "commit",
     prompt: string,
     context: string,
   ) => invoke<string>("ai_generate", { args: { kind, prompt, context } }),
@@ -224,6 +231,8 @@ export const api = {
   flowImport: (path: string, folder?: string | null) =>
     invoke<string>("flow_import", { path, folder: folder ?? null }),
   flowToYaml: (doc: FlowDoc) => invoke<string>("flow_to_yaml", { doc }),
+  exportEnvironment: (fileName: string, format: "yaml" | "json") =>
+    invoke<string>("export_environment", { fileName, format }),
   exportRequest: (path: string) => invoke<string>("export_request", { path }),
   exportCollection: (folder: string) => invoke<string>("export_collection", { folder }),
   requestToYaml: (doc: RequestDoc) => invoke<string>("request_to_yaml", { doc }),

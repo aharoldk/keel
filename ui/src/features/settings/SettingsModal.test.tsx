@@ -76,6 +76,57 @@ describe("SettingsModal", () => {
     });
   });
 
+  it("saves a custom BYOK provider and stores the key in the keychain", async () => {
+    useKeel.setState({ settingsOpen: true });
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByRole("tab", { name: "AI" }));
+    fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("AI model"), { target: { value: "llama3" } });
+    fireEvent.change(screen.getByLabelText("AI base URL"), {
+      target: { value: "http://127.0.0.1:11434/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("AI API key"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const call = invokeMock.mock.calls.find((c) => c[0] === "settings_set");
+      const settings = (
+        call![1] as { settings: { aiProvider: string; aiModel: string; aiBaseUrl: string } }
+      ).settings;
+      expect(settings.aiProvider).toBe("custom");
+      expect(settings.aiModel).toBe("llama3");
+      expect(settings.aiBaseUrl).toBe("http://127.0.0.1:11434/v1");
+      const key = invokeMock.mock.calls.find((c) => c[0] === "ai_key_set");
+      expect((key![1] as { key: string }).key).toBe("sk-test");
+    });
+  });
+
+  it("tests the AI connection with the draft settings", async () => {
+    useKeel.setState({ settingsOpen: true });
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByRole("tab", { name: "AI" }));
+    fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("AI model"), { target: { value: "llama3" } });
+    fireEvent.change(screen.getByLabelText("AI base URL"), {
+      target: { value: "http://127.0.0.1:11434/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("AI API key"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => {
+      const call = invokeMock.mock.calls.find((c) => c[0] === "ai_test");
+      expect(call).toBeTruthy();
+      expect(call![1]).toEqual({
+        args: {
+          provider: "custom",
+          model: "llama3",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          key: "sk-test",
+        },
+      });
+      expect(screen.getByText("Connected")).toBeTruthy();
+    });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "settings_set")).toBe(false);
+  });
+
   it("clamps editor font size on save", async () => {
     useKeel.setState({ settingsOpen: true });
     render(<SettingsModal />);

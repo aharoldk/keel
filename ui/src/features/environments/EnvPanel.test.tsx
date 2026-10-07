@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EnvPanel, EnvironmentEditor } from "./EnvPanel";
 import { installDefaultResponses, invokeMock, resetStore } from "@/test/helpers";
@@ -100,6 +101,36 @@ describe("EnvPanel", () => {
     expect(useKeel.getState().toasts.some((t) => t.kind === "success")).toBe(true);
   });
 
+  it("exports the environment as JSON", async () => {
+    vi.mocked(saveDialog).mockResolvedValue("/tmp/local.json");
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "env_read") {
+        return Promise.resolve({
+          schemaVersion: "1",
+          name: "local",
+          variables: { baseUrl: "http://localhost" },
+        });
+      }
+      if (cmd === "secret_list") return Promise.resolve([]);
+      if (cmd === "env_values_read") return Promise.resolve({});
+      if (cmd === "export_environment") return Promise.resolve('{"name":"local"}');
+      return Promise.resolve(cmd === "env_list" ? [envSummary] : null);
+    }) as unknown as typeof invoke);
+
+    render(<EnvironmentEditor fileName="local.yaml" />);
+    await screen.findByDisplayValue("local");
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.change(screen.getByLabelText("Export format"), { target: { value: "json" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Export" })[1]);
+
+    await waitFor(() => {
+      const call = invokeMock.mock.calls.find((c) => c[0] === "export_environment");
+      expect(call?.[1]).toMatchObject({ fileName: "local.yaml", format: "json" });
+    });
+    const saved = invokeMock.mock.calls.find((c) => c[0] === "save_response");
+    expect((saved?.[1] as { path: string }).path).toBe("/tmp/local.json");
+  });
+
   it("creates an environment via the header Plus button", async () => {
     render(<EnvPanel />);
     fireEvent.click(screen.getByTitle("Add"));
@@ -116,6 +147,26 @@ describe("EnvPanel", () => {
         doc: { name: "staging", schemaVersion: "1" },
       });
     });
+  });
+
+  it("exports from the row context menu", async () => {
+    vi.mocked(saveDialog).mockResolvedValue("/tmp/local.yaml");
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "export_environment") return Promise.resolve("name: local\n");
+      return Promise.resolve(cmd === "env_list" ? [envSummary] : null);
+    }) as unknown as typeof invoke);
+
+    render(<EnvPanel />);
+    fireEvent.contextMenu(screen.getByText("local"));
+    fireEvent.click(screen.getByRole("button", { name: "Export…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => {
+      const call = invokeMock.mock.calls.find((c) => c[0] === "export_environment");
+      expect(call?.[1]).toMatchObject({ fileName: "local.yaml", format: "yaml" });
+    });
+    const saved = invokeMock.mock.calls.find((c) => c[0] === "save_response");
+    expect((saved?.[1] as { path: string }).path).toBe("/tmp/local.yaml");
   });
 
   it("deletes via confirm modal and closes the open editor", async () => {

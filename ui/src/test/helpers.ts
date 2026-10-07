@@ -21,6 +21,7 @@ export const defaultResponses: Record<string, unknown> = {
   git_log: [],
   git_diff_file: "",
   git_diff_commit: "",
+  git_staged_diff: "",
   settings_get: {
     theme: "dark",
     requestTimeoutSec: 30,

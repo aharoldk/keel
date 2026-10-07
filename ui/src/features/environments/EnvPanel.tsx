@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Copy, FileCode2, FilePlus2, Lock, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Copy, FileCode2, FileDown, FilePlus2, FileUp, Lock, Pencil, Plus, Trash2, X } from "lucide-react";
+import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "@/api/client";
 import { emptyEnvDoc, type EnvDoc, type EnvSummary } from "@/api/types";
-import { Button, EmptyState, IconButton, Modal, Spinner, TextInput } from "@/components/ui";
+import { Button, EmptyState, IconButton, Modal, Select, Spinner, TextInput } from "@/components/ui";
 import { cn } from "@/utils";
 import { envTabKey, useKeel } from "@/state/store";
 
@@ -22,22 +22,8 @@ export function EnvPanel() {
   const [newDesc, setNewDesc] = useState("");
   const [deleting, setDeleting] = useState<EnvSummary | null>(null);
   const [menu, setMenu] = useState<{ env: EnvSummary; x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("resize", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
+  const [exporting, setExporting] = useState<EnvSummary | null>(null);
+  const [exportFormat, setExportFormat] = useState<"yaml" | "json">("yaml");
 
   useEffect(() => {
     if (!addOpen) return;
@@ -56,6 +42,57 @@ export function EnvPanel() {
   }, [addOpen]);
 
   const openEditor = (env: EnvSummary) => openEnvironment(env.fileName);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  const openMenu = (e: React.MouseEvent, env: EnvSummary) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({
+      x: Math.min(e.clientX, window.innerWidth - 160),
+      y: Math.min(e.clientY, window.innerHeight - 120),
+      env,
+    });
+  };
+
+  const exportEnv = async () => {
+    if (!exporting) return;
+    const target = exporting;
+    const slug = target.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "environment";
+    const ext = exportFormat;
+    const dest = await saveFileDialog({
+      title: "Export environment",
+      defaultPath: `${slug}.${ext}`,
+      filters:
+        exportFormat === "json"
+          ? [{ name: "Environment (JSON)", extensions: ["json"] }]
+          : [{ name: "Environment (YAML)", extensions: ["yaml"] }],
+    });
+    if (!dest) return;
+    const path = dest.toLowerCase().endsWith(`.${ext}`) ? dest : `${dest}.${ext}`;
+    setExporting(null);
+    try {
+      const payload = await api.exportEnvironment(target.fileName, exportFormat);
+      await api.saveResponse(path, btoa(unescape(encodeURIComponent(payload))));
+      toast("Environment exported", "success");
+    } catch (err) {
+      toast(String(err), "error");
+    }
+  };
 
   const createEnv = async () => {
     if (!newName.trim()) return;
@@ -154,7 +191,7 @@ export function EnvPanel() {
                   void importEnvironment();
                 }}
               >
-                <Upload size={13} className="shrink-0 text-fg-2" />
+                <FileDown size={13} className="shrink-0 text-fg-2" />
                 Import
               </button>
             </div>
@@ -175,10 +212,7 @@ export function EnvPanel() {
               key={env.fileName}
               title={`${env.name} — click to edit`}
               onClick={() => openEditor(env)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({ env, x: e.clientX, y: e.clientY });
-              }}
+              onContextMenu={(e) => openMenu(e, env)}
               className="h-7 px-2 flex items-center gap-1.5 rounded text-xs cursor-pointer select-none text-fg-1 hover:bg-bg-hover"
             >
               <FileCode2 size={13} className="shrink-0 text-fg-2" />
@@ -216,6 +250,15 @@ export function EnvPanel() {
             }}
           />
           <EnvMenuItem
+            label="Export…"
+            icon={<FileUp size={12} />}
+            onClick={() => {
+              setExportFormat("yaml");
+              setExporting(menu.env);
+              setMenu(null);
+            }}
+          />
+          <EnvMenuItem
             label="Delete"
             danger
             icon={<Trash2 size={12} />}
@@ -227,6 +270,41 @@ export function EnvPanel() {
           />
         </div>
       )}
+
+      <Modal
+        open={exporting !== null}
+        onClose={() => setExporting(null)}
+        title="Export environment"
+        width="max-w-sm"
+      >
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void exportEnv();
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs text-fg-1">
+            Format
+            <Select
+              aria-label="Export format"
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as "yaml" | "json")}
+            >
+              <option value="yaml">YAML (.yaml)</option>
+              <option value="json">JSON (.json)</option>
+            </Select>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setExporting(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Export
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={createOpen}
@@ -311,6 +389,8 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
   const [newSecret, setNewSecret] = useState("");
   const [envName, setEnvName] = useState(env.name);
   const [saving, setSaving] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"yaml" | "json">("yaml");
 
   useEffect(() => {
     let alive = true;
@@ -417,6 +497,29 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
     }
   };
 
+  const exportEnv = async () => {
+    const slug = (name.trim() || env.name).replace(/[^\w.-]+/g, "-").toLowerCase() || "environment";
+    const ext = exportFormat;
+    const dest = await saveFileDialog({
+      title: "Export environment",
+      defaultPath: `${slug}.${ext}`,
+      filters:
+        exportFormat === "json"
+          ? [{ name: "Environment (JSON)", extensions: ["json"] }]
+          : [{ name: "Environment (YAML)", extensions: ["yaml"] }],
+    });
+    if (!dest) return;
+    const path = dest.toLowerCase().endsWith(`.${ext}`) ? dest : `${dest}.${ext}`;
+    setExportOpen(false);
+    try {
+      const payload = await api.exportEnvironment(env.fileName, exportFormat);
+      await api.saveResponse(path, btoa(unescape(encodeURIComponent(payload))));
+      toast("Environment exported", "success");
+    } catch (err) {
+      toast(String(err), "error");
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -462,6 +565,10 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
               </span>
               <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
             </label>
+            <Button variant="ghost" disabled={loading} onClick={() => setExportOpen(true)}>
+              <FileUp size={13} />
+              Export
+            </Button>
             <Button variant="primary" disabled={saving || loading} onClick={save}>
               Save
             </Button>
@@ -684,6 +791,44 @@ export function EnvironmentEditor({ fileName }: { fileName: string }) {
 
         </div>
       )}
+
+      <Modal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        title="Export environment"
+        width="max-w-sm"
+      >
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void exportEnv();
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs text-fg-1">
+            Format
+            <Select
+              aria-label="Export format"
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as "yaml" | "json")}
+            >
+              <option value="yaml">YAML (.yaml)</option>
+              <option value="json">JSON (.json)</option>
+            </Select>
+          </label>
+          <p className="text-[11px] text-fg-2">
+            Exports the environment file. Current values and keychain secrets stay local.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setExportOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Export
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -77,6 +77,7 @@ pub fn run() {
             commands::git_init,
             commands::git_diff_file,
             commands::git_diff_commit,
+            commands::git_staged_diff,
             commands::git_branches,
             commands::git_checkout,
             commands::git_create_branch,
@@ -123,6 +124,7 @@ pub fn run() {
             commands::ai_key_set,
             commands::ai_key_clear,
             commands::ai_generate,
+            commands::ai_test,
             commands::request_to_yaml,
             commands::request_from_yaml,
             commands::flow_to_yaml,
@@ -138,6 +140,7 @@ pub fn run() {
             commands::flow_import,
             commands::export_request,
             commands::export_collection,
+            commands::export_environment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keel");

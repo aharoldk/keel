@@ -20,7 +20,7 @@ import { open as openDialog, save as saveFileDialog } from "@tauri-apps/plugin-d
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "@/api/client";
 import type { HttpMethod, TreeNode } from "@/api/types";
-import { Button, EmptyState, IconButton, Modal, TextInput } from "@/components/ui";
+import { Button, EmptyState, IconButton, Modal, Select, TextInput } from "@/components/ui";
 import { cn, methodVar } from "@/utils";
 import { useKeel } from "@/state/store";
 import { CollectionSettingsModal } from "./CollectionSettingsModal";
@@ -46,6 +46,14 @@ interface MenuState {
 interface CreateModal {
   kind: "request" | "folder";
   parent: string;
+}
+
+type CollectionExportFormat = "zip" | "json";
+
+interface ExportModal {
+  folder: string;
+  label: string;
+  format: CollectionExportFormat;
 }
 
 export function CollectionTree() {
@@ -83,6 +91,7 @@ export function CollectionTree() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const importFolderRef = useRef(importFolder);
   importFolderRef.current = importFolder;
+  const [exportModal, setExportModal] = useState<ExportModal | null>(null);
   const [collectionSettingsOpen, setCollectionSettingsOpen] = useState(false);
   const [folderSettingsFor, setFolderSettingsFor] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -383,16 +392,31 @@ export function CollectionTree() {
     }
   };
 
-  const exportCollection = async (folder: string, label: string) => {
+  const openExport = (folder: string, label: string) =>
+    setExportModal({ folder, label, format: "zip" });
+
+  const exportCollection = async () => {
+    if (!exportModal) return;
+    const { folder, label, format } = exportModal;
+    const slug = label.replace(/[^\w.-]+/g, "-").toLowerCase() || "collection";
+    const ext = format === "json" ? "json" : "zip";
     const dest = await saveFileDialog({
       title: folder ? "Export folder" : "Export collection",
-      defaultPath: `${label.replace(/[^\w.-]+/g, "-").toLowerCase() || "collection"}.zip`,
-      filters: [{ name: "ZIP", extensions: ["zip"] }],
+      defaultPath: `${slug}.${ext}`,
+      filters:
+        format === "json"
+          ? [{ name: "OpenAPI (JSON)", extensions: ["json"] }]
+          : [{ name: "Keel collection (ZIP)", extensions: ["zip"] }],
     });
     if (!dest) return;
+    const path = dest.toLowerCase().endsWith(`.${ext}`) ? dest : `${dest}.${ext}`;
+    setExportModal(null);
     try {
-      const dataBase64 = await api.exportCollection(folder);
-      await api.saveResponse(dest, dataBase64);
+      const payload =
+        format === "json" ? await api.exportOpenapi(folder) : await api.exportCollection(folder);
+      const dataBase64 =
+        format === "json" ? btoa(unescape(encodeURIComponent(payload))) : payload;
+      await api.saveResponse(path, dataBase64);
       toast(folder ? "Folder exported" : "Collection exported", "success");
     } catch (err) {
       toast(String(err), "error");
@@ -743,7 +767,7 @@ export function CollectionTree() {
                 label="Export collection"
                 onClick={() => {
                   setHeaderMenu(false);
-                  void exportCollection("", "collection");
+                  openExport("", "collection");
                 }}
               />
               <HeaderMenuItem
@@ -863,7 +887,7 @@ export function CollectionTree() {
                   />
                   <MenuItem
                     label="Export…"
-                    onClick={() => runMenu((n) => exportCollection(n.path, n.name))}
+                    onClick={() => runMenu((n) => openExport(n.path, n.name))}
                   />
                   <MenuItem label="Delete" danger onClick={() => runMenu((n) => deleteNode(n.path))} />
                 </>
@@ -872,6 +896,45 @@ export function CollectionTree() {
           )}
         </div>
       )}
+
+      <Modal
+        open={exportModal !== null}
+        onClose={() => setExportModal(null)}
+        title={exportModal?.folder ? "Export folder" : "Export collection"}
+        width="max-w-sm"
+      >
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void exportCollection();
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs text-fg-1">
+            Format
+            <Select
+              aria-label="Export format"
+              value={exportModal?.format ?? "zip"}
+              onChange={(e) =>
+                setExportModal((prev) =>
+                  prev ? { ...prev, format: e.target.value as CollectionExportFormat } : prev,
+                )
+              }
+            >
+              <option value="zip">Keel collection (.zip)</option>
+              <option value="json">OpenAPI 3 (.json)</option>
+            </Select>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setExportModal(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Export
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={createModal !== null}

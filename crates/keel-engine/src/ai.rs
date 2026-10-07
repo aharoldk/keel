@@ -38,6 +38,7 @@ pub enum AiKind {
     Test,
     Docs,
     Request,
+    Commit,
 }
 
 impl AiKind {
@@ -47,6 +48,7 @@ impl AiKind {
             "test" => Ok(Self::Test),
             "docs" => Ok(Self::Docs),
             "request" => Ok(Self::Request),
+            "commit" => Ok(Self::Commit),
             other => Err(format!("unknown AI task `{other}`")),
         }
     }
@@ -80,6 +82,12 @@ Change only what the user asked. Use request.method, request.url, request.params
 request.headers, request.body, auth, scripts, tests, and description. \
 Params and headers are lists of {name, value, enabled}."
         }
+        AiKind::Commit => {
+            "You write one git commit message for the staged diff. \
+Reply with only the message, no markdown fences and no explanation. \
+Use a single imperative subject line of at most 72 characters. \
+Add a blank line and a short body only when the diff needs it."
+        }
     }
 }
 
@@ -96,6 +104,7 @@ pub fn build_user_prompt(kind: AiKind, prompt: &str, context: &str) -> String {
                 AiKind::Test => "tests",
                 AiKind::Docs => "documentation",
                 AiKind::Request => "request YAML",
+                AiKind::Commit => "staged diff",
             }
         )
     }
@@ -210,6 +219,66 @@ fn provider_error(body: &str) -> String {
     }
     let snippet: String = body.chars().take(180).collect();
     format!("AI provider returned an unexpected response: {snippet}")
+}
+
+/// Sends a one-token ping with the draft settings. `key` overrides the
+/// keychain so an unsaved key can be checked.
+pub async fn test_connection(settings: &AppSettings, key: Option<&str>) -> Result<(), String> {
+    if settings.ai_provider == "off" {
+        return Err("Choose a provider first.".into());
+    }
+    let model = settings.ai_model.trim();
+    if model.is_empty() {
+        return Err("Choose a model first.".into());
+    }
+    let key = match key.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(key) => key.to_string(),
+        None => key_get()?,
+    };
+    let url = endpoint(settings);
+    let anthropic = settings.ai_provider == "anthropic"
+        && settings
+            .ai_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("AI client: {e}"))?;
+    let request = if anthropic {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "ping" }],
+        });
+        client
+            .post(&url)
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+    } else {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "ping" }],
+        });
+        client.post(&url).bearer_auth(key).json(&body)
+    };
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("AI request failed: {e}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("AI response: {e}"))?;
+    if !status.is_success() {
+        return Err(provider_error(&text));
+    }
+    Ok(())
 }
 
 pub async fn complete(
@@ -339,6 +408,8 @@ mod tests {
         assert!(text.contains("GET /users"));
         assert!(system_prompt(AiKind::Test).contains("JSON array"));
         assert!(system_prompt(AiKind::Request).contains("YAML"));
+        assert!(system_prompt(AiKind::Commit).contains("commit message"));
+        assert_eq!(AiKind::parse("commit").unwrap(), AiKind::Commit);
     }
 
     #[test]

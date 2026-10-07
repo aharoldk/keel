@@ -981,6 +981,17 @@ pub fn flow_import(root: &Path, source: &Path, folder: Option<&str>) -> Result<S
     flow_save(root, None, Some(&rel_dir), &doc)
 }
 
+/// Serializes one environment file as YAML or JSON.
+/// Current values and keychain secrets stay local and are not included.
+pub fn export_environment(root: &Path, file_name: &str, format: &str) -> Result<String, String> {
+    let doc = env_read(root, file_name)?;
+    match format {
+        "json" => serde_json::to_string_pretty(&doc).map_err(|e| format!("serialize error: {e}")),
+        "yaml" | "" => yaml_of(&doc),
+        other => Err(format!("unsupported export format `{other}`")),
+    }
+}
+
 /// Serializes one request file as YAML.
 pub fn export_request_yaml(root: &Path, relative: &str) -> Result<String, String> {
     let doc = read_request(root, relative)?;
@@ -1641,5 +1652,38 @@ request:
             let name = folder.by_index(i).unwrap().name().to_string();
             assert!(name.starts_with("users/"), "{name}");
         }
+    }
+
+    #[test]
+    fn export_environment_yaml_and_json() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        init_workspace(root, "Demo").expect("init");
+        let file = env_save(
+            root,
+            None,
+            &EnvDoc {
+                schema_version: SCHEMA_VERSION.into(),
+                name: "local".into(),
+                description: Some("Dev".into()),
+                variables: Some(BTreeMap::from([("baseUrl".into(), "http://localhost".into())])),
+                secrets: Some(BTreeMap::from([("apiToken".into(), "fallback".into())])),
+            },
+        )
+        .expect("save");
+
+        let yaml = export_environment(root, &file, "yaml").expect("yaml");
+        let doc: EnvDoc = yaml_to(&yaml).expect("parse yaml");
+        assert_eq!(doc.name, "local");
+        assert_eq!(
+            doc.variables.as_ref().unwrap().get("baseUrl").map(String::as_str),
+            Some("http://localhost")
+        );
+
+        let json = export_environment(root, &file, "json").expect("json");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("parse json");
+        assert_eq!(value["name"], "local");
+        assert_eq!(value["secrets"]["apiToken"], "fallback");
+        export_environment(root, &file, "xml").expect_err("bad format");
     }
 }

@@ -474,6 +474,36 @@ fn workspace_join(root: &Path, path: &str) -> Result<std::path::PathBuf, String>
     }
 }
 
+/// Unified diff of the index against HEAD. Used as context for an AI commit message.
+pub fn staged_diff(root: &Path) -> Result<String, String> {
+    let repo = open(root)?;
+    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let diff = repo
+        .diff_tree_to_index(head_tree.as_ref(), None, None)
+        .map_err(|e| e.to_string())?;
+    let mut out = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        match line.origin() {
+            '+' | '-' | ' ' => out.push(line.origin()),
+            _ => {}
+        }
+        let content = std::str::from_utf8(line.content()).unwrap_or("");
+        out.push_str(content);
+        const MAX: usize = 24_000;
+        if out.len() > MAX {
+            out.truncate(MAX);
+            out.push_str("\n…(diff truncated)");
+            return false;
+        }
+        true
+    })
+    .map_err(|e| e.to_string())?;
+    if out.trim().is_empty() {
+        return Err("Nothing staged to describe".into());
+    }
+    Ok(out)
+}
+
 pub fn diff_file(root: &Path, path: &str) -> Result<String, String> {
     let repo = open(root)?;
     let head_tree = repo

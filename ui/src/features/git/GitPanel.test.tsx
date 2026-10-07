@@ -121,6 +121,25 @@ describe("GitPanel", () => {
     expect(screen.getByText(/keel ·/)).toBeTruthy();
   });
 
+  it("fills the commit message from the staged diff", async () => {
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "git_staged_diff") return Promise.resolve("diff --git a/pet.yaml");
+      if (cmd === "ai_generate") return Promise.resolve("add pet endpoint\n");
+      return Promise.resolve(null);
+    }) as unknown as typeof invoke);
+
+    useKeel.setState({ git: structuredClone(withRepo) });
+    render(<GitPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate message" }));
+    await waitFor(() => {
+      expect(
+        (screen.getByPlaceholderText("Commit message") as HTMLTextAreaElement).value,
+      ).toBe("add pet endpoint");
+    });
+    const call = invokeMock.mock.calls.find((c) => c[0] === "ai_generate");
+    expect((call![1] as { args: { kind: string; context: string } }).args.kind).toBe("commit");
+  });
+
   it("opens a file diff in the content area on row click", async () => {
     invokeMock.mockImplementation(((cmd: string) => {
       if (cmd === "git_diff_file") return Promise.resolve("--- a/users.yaml\n+++ b/users.yaml");

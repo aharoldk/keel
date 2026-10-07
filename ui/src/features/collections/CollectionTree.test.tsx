@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { CollectionTree } from "./CollectionTree";
 import { installDefaultResponses, invokeMock, resetStore } from "@/test/helpers";
 import { useKeel } from "@/state/store";
@@ -176,5 +177,39 @@ describe("CollectionTree search", () => {
     expect(screen.getByText("List users")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Search requests"), { target: { value: "nope" } });
     expect(screen.getByText(/No matches/)).toBeTruthy();
+  });
+});
+
+describe("CollectionTree export", () => {
+  beforeEach(() => {
+    installDefaultResponses();
+    resetStore();
+    useKeel.setState({ tree });
+    vi.mocked(saveDialog).mockReset();
+  });
+
+  it("lets the user pick OpenAPI instead of zip", async () => {
+    vi.mocked(saveDialog).mockResolvedValue("/tmp/collection.json");
+    invokeMock.mockImplementation(((cmd: string) => {
+      if (cmd === "export_openapi") return Promise.resolve('{"openapi":"3.0.3"}');
+      if (cmd === "export_collection") return Promise.resolve("UEs=");
+      return Promise.resolve(null);
+    }) as typeof invokeMock);
+    render(<CollectionTree />);
+    fireEvent.click(screen.getByTitle("More"));
+    fireEvent.click(screen.getByText("Export collection"));
+    fireEvent.change(screen.getByLabelText("Export format"), { target: { value: "json" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "export_openapi")).toBe(true),
+    );
+    expect(invokeMock.mock.calls.some((c) => c[0] === "export_collection")).toBe(false);
+    const saved = invokeMock.mock.calls.find((c) => c[0] === "save_response");
+    expect((saved?.[1] as { path: string }).path).toBe("/tmp/collection.json");
+    expect(vi.mocked(saveDialog).mock.calls[0]?.[0]).toMatchObject({
+      defaultPath: "collection.json",
+      filters: [{ name: "OpenAPI (JSON)", extensions: ["json"] }],
+    });
   });
 });

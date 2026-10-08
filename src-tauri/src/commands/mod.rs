@@ -599,6 +599,11 @@ pub async fn git_unstage(paths: Option<Vec<String>>, ctx: Ctx<'_>) -> Result<(),
 }
 
 #[tauri::command]
+pub async fn git_discard(ctx: Ctx<'_>) -> Result<(), String> {
+    with_workspace(&ctx, |root| gitutil::discard(root)).await
+}
+
+#[tauri::command]
 pub async fn git_commit(message: String, ctx: Ctx<'_>) -> Result<String, String> {
     with_workspace(&ctx, |root| gitutil::commit(root, &message)).await
 }

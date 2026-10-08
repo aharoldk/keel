@@ -9,6 +9,7 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/api/client";
 import type { GitCommit, GitEntryStatus } from "@/api/types";
@@ -29,6 +30,7 @@ export function GitPanel() {
   const git = useKeel((s) => s.git);
   const gitStage = useKeel((s) => s.gitStage);
   const gitUnstage = useKeel((s) => s.gitUnstage);
+  const gitDiscard = useKeel((s) => s.gitDiscard);
   const gitCommit = useKeel((s) => s.gitCommit);
   const gitInit = useKeel((s) => s.gitInit);
   const gitCheckout = useKeel((s) => s.gitCheckout);
@@ -50,6 +52,7 @@ export function GitPanel() {
   const [remoteUrl, setRemoteUrl] = useState("");
   const [busy, setBusy] = useState<"pull" | "push" | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   const loadCommits = async () => {
     try {
@@ -303,21 +306,23 @@ export function GitPanel() {
         {git.remoteUrl ?? "no remote — click to add origin"}
       </button>
 
-      <div className="px-2 py-1.5 shrink-0 flex items-center gap-1.5 border-b border-line-0">
-        <Button variant="ghost" onClick={() => gitStage(null)} disabled={unstaged.length === 0}>
-          Stage all
-        </Button>
-        <Button variant="ghost" onClick={() => gitUnstage(null)} disabled={staged.length === 0}>
-          Unstage all
-        </Button>
-      </div>
-
       <div className="flex-1 min-h-0 overflow-y-auto">
         <Section
           id="staged"
           label={`Staged (${staged.length})`}
           collapsed={collapsed.has("staged")}
           onToggle={toggleSection}
+          action={
+            <IconButton
+              title="Unstage all"
+              aria-label="Unstage all"
+              className="h-6 w-6"
+              disabled={staged.length === 0}
+              onClick={() => gitUnstage(null)}
+            >
+              <Minus size={12} />
+            </IconButton>
+          }
         >
           {staged.length === 0 ? (
             <p className="px-2 py-1 text-xs text-fg-2">Nothing staged</p>
@@ -330,6 +335,28 @@ export function GitPanel() {
           label={`Changes (${unstaged.length})`}
           collapsed={collapsed.has("changes")}
           onToggle={toggleSection}
+          action={
+            <>
+              <IconButton
+                title="Stage all"
+                aria-label="Stage all"
+                className="h-6 w-6"
+                disabled={unstaged.length === 0}
+                onClick={() => gitStage(null)}
+              >
+                <Plus size={12} />
+              </IconButton>
+              <IconButton
+                title="Discard all"
+                aria-label="Discard all"
+                className="h-6 w-6"
+                disabled={unstaged.length === 0}
+                onClick={() => setDiscardOpen(true)}
+              >
+                <Trash2 size={12} />
+              </IconButton>
+            </>
+          }
         >
           {unstaged.length === 0 ? (
             <p className="px-2 py-1 text-xs text-fg-2">No changes</p>
@@ -337,11 +364,15 @@ export function GitPanel() {
             unstaged.map(renderEntry(false))
           )}
         </Section>
+      </div>
+
+      <div className="shrink-0 border-t border-line-0 flex flex-col max-h-48">
         <Section
           id="history"
           label="History"
           collapsed={collapsed.has("history")}
           onToggle={toggleSection}
+          scroll
         >
           {commits.length === 0 ? (
             <p className="px-2 py-1 text-xs text-fg-2">No commits yet</p>
@@ -397,6 +428,35 @@ export function GitPanel() {
           Commit
         </Button>
       </div>
+
+      <Modal
+        open={discardOpen}
+        onClose={() => setDiscardOpen(false)}
+        title="Discard all changes"
+        width="max-w-sm"
+      >
+        <div className="flex flex-col gap-3 text-xs text-fg-1">
+          <p>
+            Reverts every file under <span className="font-mono">Changes</span> to its staged
+            version and permanently deletes untracked files. Staged changes are kept. This
+            cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setDiscardOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={async () => {
+                setDiscardOpen(false);
+                await gitDiscard();
+              }}
+            >
+              Discard changes
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={branchOpen}
@@ -484,25 +544,33 @@ function Section({
   label,
   collapsed,
   onToggle,
+  action,
+  scroll,
   children,
 }: {
   id: string;
   label: string;
   collapsed: boolean;
   onToggle: (id: string) => void;
+  action?: ReactNode;
+  scroll?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => onToggle(id)}
-        className="w-full px-2 pt-2 pb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-fg-2 hover:text-fg-0"
-      >
-        <ChevronRight size={12} className={cn("shrink-0 transition-transform", !collapsed && "rotate-90")} />
-        {label}
-      </button>
-      {!collapsed && children}
+    <div className={cn(scroll && "min-h-0 flex flex-col")}>
+      <div className="shrink-0 px-1 pt-2 flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => onToggle(id)}
+          className="flex-1 min-w-0 h-6 px-1 flex items-center gap-1 rounded text-[10px] font-semibold uppercase tracking-wider text-fg-2 hover:text-fg-0 hover:bg-bg-hover"
+        >
+          <ChevronRight size={12} className={cn("shrink-0 transition-transform", !collapsed && "rotate-90")} />
+          <span className="truncate">{label}</span>
+        </button>
+        {action}
+      </div>
+      {!collapsed &&
+        (scroll ? <div className="min-h-0 overflow-y-auto">{children}</div> : children)}
     </div>
   );
 }

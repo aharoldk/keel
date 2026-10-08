@@ -78,6 +78,18 @@ describe("GitPanel", () => {
     });
   });
 
+  it("discard all confirms before wiping the worktree", async () => {
+    useKeel.setState({ git: structuredClone(withRepo) });
+    render(<GitPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Discard all" }));
+    expect(invokeMock.mock.calls.some((c) => c[0] === "git_discard")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.some((c) => c[0] === "git_discard")).toBe(true);
+    });
+  });
+
   it("commit disabled without message or staged entries; commits with message", async () => {
     useKeel.setState({ git: structuredClone(withRepo) });
     render(<GitPanel />);

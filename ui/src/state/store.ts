@@ -167,6 +167,7 @@ interface KeelState {
 
   gitStage: (paths: string[] | null) => Promise<void>;
   gitUnstage: (paths: string[] | null) => Promise<void>;
+  gitDiscard: () => Promise<void>;
   gitCommit: (message: string) => Promise<void>;
   gitInit: () => Promise<void>;
   gitCheckout: (name: string) => Promise<void>;
@@ -816,6 +817,16 @@ export const useKeel = create<KeelState>((set, get) => ({
     try {
       await api.gitUnstage(paths);
       await get().refreshGit();
+    } catch (e) {
+      get().toast(String(e), "error");
+    }
+  },
+
+  async gitDiscard() {
+    try {
+      await api.gitDiscard();
+      await get().refreshGit();
+      get().toast("Changes discarded", "success");
     } catch (e) {
       get().toast(String(e), "error");
     }

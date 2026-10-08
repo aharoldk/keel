@@ -227,6 +227,67 @@ pub fn unstage(root: &Path, paths: Option<&[String]>) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// Throws away every working-tree change and deletes untracked files, the
+/// equivalent of `git checkout -- . && git clean -fd`.
+///
+/// The index is left alone: anything already staged survives, so a path that
+/// is both staged and modified keeps its staged version and only loses the
+/// edits sitting on top of it. Ignored files are never touched, and
+/// conflicted paths are skipped — they have to be resolved by hand.
+pub fn discard(root: &Path) -> Result<(), String> {
+    let repo = open(root)?;
+
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .include_unmodified(false);
+    let statuses = repo.statuses(Some(&mut opts)).map_err(|e| e.to_string())?;
+
+    let staged = |s: Status| {
+        s.intersects(
+            Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED | Status::INDEX_RENAMED,
+        )
+    };
+    let mut untracked: Vec<String> = Vec::new();
+    let mut tracked: Vec<String> = Vec::new();
+    for entry in statuses.iter() {
+        let Some(path) = entry.path() else { continue };
+        let s = entry.status();
+        if s.contains(Status::CONFLICTED) {
+            continue;
+        }
+        if s.contains(Status::WT_NEW) && !staged(s) {
+            untracked.push(path.to_string());
+        } else if s.intersects(
+            Status::WT_MODIFIED | Status::WT_DELETED | Status::WT_TYPECHANGE | Status::WT_RENAMED,
+        ) {
+            tracked.push(path.to_string());
+        }
+    }
+
+    // Untracked directories come back as a single `dir/` entry when the
+    // status is not recursed, so `remove_dir_all` drops the whole tree.
+    for path in &untracked {
+        let full = root.join(path);
+        if full.is_dir() {
+            std::fs::remove_dir_all(&full).map_err(|e| format!("discard `{path}`: {e}"))?;
+        } else {
+            std::fs::remove_file(&full).map_err(|e| format!("discard `{path}`: {e}"))?;
+        }
+    }
+
+    if !tracked.is_empty() {
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        for path in &tracked {
+            checkout.path(path.as_str());
+        }
+        repo.checkout_index(None, Some(&mut checkout))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn commit(root: &Path, message: &str) -> Result<String, String> {
     let repo = open(root)?;
     let sig = signature(&repo)?;
@@ -674,6 +735,41 @@ mod tests {
     fn commit_all(root: &Path, msg: &str) {
         stage(root, None).expect("stage");
         commit(root, msg).expect("commit");
+    }
+
+    #[test]
+    fn discard_clears_worktree_and_keeps_the_index() {
+        let dir = TempDir::new().expect("dir");
+        let root = dir.path();
+        write(&root.join("a.yaml"), "one");
+        init(root).expect("init");
+        commit_all(root, "c1");
+
+        write(&root.join("staged.yaml"), "keep");
+        stage(root, Some(&["staged.yaml".to_string()])).expect("stage");
+
+        write(&root.join("a.yaml"), "dirty");
+        write(&root.join("new-dir/inner.yaml"), "fresh");
+
+        discard(root).expect("discard");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.yaml")).expect("read"),
+            "one"
+        );
+        assert!(!root.join("new-dir").exists(), "untracked tree should go");
+
+        let st = status(root).expect("status");
+        assert!(
+            st.entries.iter().any(|e| e.path == "staged.yaml" && e.staged),
+            "staged entry must survive: {:?}",
+            st.entries
+        );
+        assert!(
+            st.entries.iter().all(|e| e.staged),
+            "nothing should be left unstaged: {:?}",
+            st.entries
+        );
     }
 
     #[test]

@@ -94,6 +94,7 @@ export const api = {
   gitStatus: () => invoke<GitStatus>("git_status"),
   gitStage: (paths: string[] | null) => invoke<void>("git_stage", { paths }),
   gitUnstage: (paths: string[] | null) => invoke<void>("git_unstage", { paths }),
+  gitDiscard: () => invoke<void>("git_discard"),
   gitCommit: (message: string) => invoke<string>("git_commit", { message }),
   gitLog: (limit?: number) => invoke<GitCommit[]>("git_log", { limit }),
   gitInit: () => invoke<void>("git_init"),

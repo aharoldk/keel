@@ -45,7 +45,7 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 **WebSocket support.** Connect over `ws`/`wss`, send text and binary frames, watch inbound messages live, and disconnect. Subprotocols are configurable per request.
 
-**AI assistant.** Chat to generate scripts, tests, docs, commit messages, or requests.
+**AI assistant.** Generate scripts, tests, docs, commit messages, or request edits. Scoped to Keel — HTTP, gRPC, GraphQL, and WebSocket requests, YAML, scripts, and tests — so off-topic prompts are rejected.
 
 **CLI.** `keel-cli` runs collections offline, prints JSON or JUnit reports, exit codes 0/1/2.
 

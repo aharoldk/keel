@@ -1,9 +1,14 @@
 //! Local bring-your-own-key AI. The API key lives in the OS keychain
 //! (`keel` / `app:ai:key`) and is never written to settings or returned
 //! to the UI. Requests go straight to the user's provider.
+//!
+//! Every call passes through the topic guard in [`ai_guard`]: prompts
+//! outside Keel's domain are rejected before the network call, and the
+//! model itself is instructed to answer them with a sentinel.
 
 use serde::{Deserialize, Serialize};
 
+use crate::ai_guard::{self, OFF_TOPIC_MESSAGE};
 use crate::secrets;
 use crate::settings::AppSettings;
 
@@ -54,8 +59,8 @@ impl AiKind {
     }
 }
 
-pub fn system_prompt(kind: AiKind) -> &'static str {
-    match kind {
+pub fn system_prompt(kind: AiKind) -> String {
+    let base = match kind {
         AiKind::Script => {
             "You write one Keel pre-request or post-response script. \
 Reply with only the script, no markdown fences and no explanation. \
@@ -88,7 +93,8 @@ Reply with only the message, no markdown fences and no explanation. \
 Use a single imperative subject line of at most 72 characters. \
 Add a blank line and a short body only when the diff needs it."
         }
-    }
+    };
+    format!("{base}\n\n{}", ai_guard::guard_instruction())
 }
 
 pub fn build_user_prompt(kind: AiKind, prompt: &str, context: &str) -> String {
@@ -291,6 +297,9 @@ pub async fn complete(
     if prompt.is_empty() {
         return Err("Describe what to generate".into());
     }
+    if !ai_guard::is_on_topic(prompt) {
+        return Err(OFF_TOPIC_MESSAGE.to_string());
+    }
     if settings.ai_provider == "off" {
         return Err("AI is turned off. Enable it in Settings → AI.".into());
     }
@@ -352,6 +361,15 @@ pub async fn complete(
     } else {
         extract_openai(&text)?
     };
+    finalize(kind, text)
+}
+
+/// Last-mile checks on the raw reply: the off-topic sentinel first, then
+/// the per-kind shape validation.
+fn finalize(kind: AiKind, text: String) -> Result<String, String> {
+    if ai_guard::is_off_topic_response(&text) {
+        return Err(OFF_TOPIC_MESSAGE.to_string());
+    }
     if kind == AiKind::Request {
         validate_request_yaml(&text)?;
     }
@@ -419,5 +437,51 @@ mod tests {
             "schemaVersion: \"1\"\nkind: request\nname: Get\nrequest:\n  method: GET\n  url: /users\n",
         );
         assert!(ok.is_ok(), "{ok:?}");
+    }
+
+    #[tokio::test]
+    async fn rejects_off_topic_prompt_before_the_provider() {
+        let settings = AppSettings::default();
+        let err = complete(&settings, AiKind::Script, "what's the weather", "")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Keel AI only helps"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn on_topic_prompt_passes_the_guard() {
+        let settings = AppSettings::default();
+        let err = complete(&settings, AiKind::Script, "log the response status", "")
+            .await
+            .unwrap_err();
+        assert!(err.contains("turned off"), "{err}");
+    }
+
+    #[test]
+    fn every_system_prompt_carries_the_guard() {
+        for kind in [
+            AiKind::Script,
+            AiKind::Test,
+            AiKind::Docs,
+            AiKind::Request,
+            AiKind::Commit,
+        ] {
+            assert!(
+                system_prompt(kind).contains("OFF_TOPIC"),
+                "{kind:?} system prompt is unguarded"
+            );
+        }
+    }
+
+    #[test]
+    fn finalize_catches_sentinel_and_bad_yaml() {
+        assert!(finalize(AiKind::Script, ai_guard::OFF_TOPIC.to_string()).is_err());
+        assert!(finalize(AiKind::Test, "log(status())".to_string()).is_ok());
+        assert!(finalize(AiKind::Request, "name: only".to_string()).is_err());
+        assert!(finalize(
+            AiKind::Request,
+            "schemaVersion: \"1\"\nkind: request\nname: Get\nrequest:\n  method: GET\n  url: /users\n".to_string(),
+        )
+        .is_ok());
     }
 }

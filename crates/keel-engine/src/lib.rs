@@ -59,8 +59,9 @@
 //! - **[`secrets`]**: OS keychain storage. Secret *resolution* is
 //!   caller-provided via [`variables::SecretSource`], so headless builds can
 //!   plug in their own backend.
-//! - **[`ai`]**: request generation against OpenAI/Anthropic/custom
-//!   endpoints.
+//! - **[`ai`]** and **[`ai_guard`]**: request generation against
+//!   OpenAI/Anthropic/custom endpoints, with a topic guard that keeps the
+//!   assistant inside Keel's domain.
 //! - **[`settings`]**: the app config file used by the AI helpers and the
 //!   desktop shell.
 
@@ -72,6 +73,7 @@ pub use model::*;
 pub use variables::{Interpolator, MapSecrets, Resolved, Scope, ScopeStack, SecretSource};
 
 pub mod ai;
+pub mod ai_guard;
 pub mod auth;
 pub mod codegen;
 pub mod cookies;

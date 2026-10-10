@@ -132,7 +132,7 @@ export function AiPanel() {
             aria-label="AI prompt"
             minRows={3}
             maxHeight={140}
-            placeholder="Describe what to generate"
+            placeholder="Describe what to generate — requests, scripts, tests, docs"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {

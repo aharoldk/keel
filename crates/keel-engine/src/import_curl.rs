@@ -294,17 +294,29 @@ pub fn curl_to_request(input: &str, name_hint: Option<String>) -> Result<Request
         })
     } else if !parts.data.is_empty() {
         let joined = parts.data.join("&");
-        let is_json = content_type
-            .as_deref()
-            .map(|c| c.contains("json"))
-            .unwrap_or(false)
-            || {
+        let ct = content_type.as_deref().unwrap_or("");
+        let is_json = ct.contains("json")
+            || (ct.is_empty() && {
                 let t = joined.trim_start();
                 t.starts_with('{') || t.starts_with('[')
-            };
+            });
+        // curl sends `application/x-www-form-urlencoded` for `-d` unless the
+        // caller overrode it, so `-d 'a=1&b=2'` is a form body, not plain text.
+        let is_form = ct.contains("x-www-form-urlencoded")
+            || (ct.is_empty() && !is_json && looks_like_form_pairs(&joined));
+        let (body_type, content, items) = if is_json {
+            // Preserve the payload byte-for-byte: reformatting it would change
+            // what a re-exported request actually sends.
+            (BodyType::Json, Some(joined.clone()), None)
+        } else if is_form {
+            (BodyType::FormUrlencoded, None, Some(parse_form_pairs(&joined)))
+        } else {
+            (BodyType::Text, Some(joined.clone()), None)
+        };
         Some(Body {
-            body_type: if is_json { BodyType::Json } else { BodyType::Text },
-            content: Some(pretty_json_if_possible(&joined, is_json)),
+            body_type,
+            content,
+            items,
             ..Body::default()
         })
     } else {
@@ -370,6 +382,33 @@ fn split_url_params(url: Option<&str>) -> Option<Vec<KV>> {
     })
 }
 
+/// Splits `a=1&b=2` into form rows. Segments without `=` become value-less
+/// fields, mirroring how a server would parse them.
+fn parse_form_pairs(data: &str) -> Vec<KV> {
+    data.split('&')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, v) = p.split_once('=').unwrap_or((p, ""));
+            KV {
+                name: k.to_string(),
+                value: v.to_string(),
+                enabled: true,
+                ..KV::default()
+            }
+        })
+        .collect()
+}
+
+/// True when `-d` data reads as urlencoded pairs (`a=1&b=2`) rather than an
+/// opaque payload. Rejects JSON/XML-looking data so those keep their type.
+fn looks_like_form_pairs(data: &str) -> bool {
+    let t = data.trim();
+    if t.is_empty() || !t.contains('=') || t.contains(['{', '[', '"', '<']) {
+        return false;
+    }
+    t.split('&').all(|pair| pair.is_empty() || pair.contains('='))
+}
+
 fn parse_method(m: &str) -> Result<HttpMethod, String> {
     match m {
         "GET" => Ok(HttpMethod::GET),
@@ -403,17 +442,6 @@ fn display_name(method: &str, url: &str) -> String {
         })
         .unwrap_or_else(|| "request".into());
     format!("{method} {host}")
-}
-
-fn pretty_json_if_possible(text: &str, is_json: bool) -> String {
-    if is_json {
-        serde_json::from_str::<serde_json::Value>(text)
-            .ok()
-            .and_then(|v| serde_json::to_string_pretty(&v).ok())
-            .unwrap_or_else(|| text.to_string())
-    } else {
-        text.to_string()
-    }
 }
 
 #[cfg(test)]
@@ -461,7 +489,13 @@ mod tests {
         let auth = doc.auth.expect("auth");
         assert_eq!(auth.username.as_deref(), Some("ada"));
         assert_eq!(auth.password.as_deref(), Some("secret!"));
-        assert_eq!(doc.request.body.expect("body").body_type, BodyType::Text);
+        // `-d 'k=v'` with no explicit Content-Type is form-urlencoded, which
+        // is what curl itself sends.
+        let body = doc.request.body.expect("body");
+        assert_eq!(body.body_type, BodyType::FormUrlencoded);
+        let items = body.items.expect("items");
+        assert_eq!(items[0].name, "k");
+        assert_eq!(items[0].value, "v");
     }
 
     #[test]
@@ -533,7 +567,103 @@ mod tests {
         assert_eq!(doc.request.method, HttpMethod::POST);
         assert_eq!(doc.request.url, "https://api.example.com/x");
         let body = doc.request.body.expect("body");
-        assert_eq!(body.body_type, BodyType::Text);
-        assert_eq!(body.content.as_deref(), Some("x=1"));
+        assert_eq!(body.body_type, BodyType::FormUrlencoded);
+        let items = body.items.expect("items");
+        assert_eq!(items[0].name, "x");
+        assert_eq!(items[0].value, "1");
+    }
+
+    #[test]
+    fn data_without_content_type_is_form_urlencoded() {
+        // Real curl sends `application/x-www-form-urlencoded` for `-d` when
+        // no Content-Type is given, so these must import as form bodies.
+        let doc = curl_to_request(
+            "curl -X POST https://api.example.com/x -d 'a=1&b=2'",
+            None,
+        )
+        .expect("ok");
+        let body = doc.request.body.expect("body");
+        assert_eq!(body.body_type, BodyType::FormUrlencoded);
+        let items = body.items.expect("items");
+        assert_eq!(items.len(), 2);
+        assert_eq!((items[0].name.as_str(), items[0].value.as_str()), ("a", "1"));
+        assert_eq!((items[1].name.as_str(), items[1].value.as_str()), ("b", "2"));
+
+        // Values with spaces survive as a single field.
+        let doc = curl_to_request(
+            "curl -X POST https://api.example.com/x -d 'name=John Doe'",
+            None,
+        )
+        .expect("ok");
+        let items = doc.request.body.expect("body").items.expect("items");
+        assert_eq!(items[0].value, "John Doe");
+    }
+
+    #[test]
+    fn explicit_content_type_wins_over_heuristics() {
+        // Explicit urlencoded stays urlencoded.
+        let doc = curl_to_request(
+            "curl -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'a=1' https://api.example.com/x",
+            None,
+        )
+        .expect("ok");
+        assert_eq!(
+            doc.request.body.expect("body").body_type,
+            BodyType::FormUrlencoded
+        );
+
+        // Explicit text/plain stays text even though it looks like a pair.
+        let doc = curl_to_request(
+            "curl -X POST -H 'Content-Type: text/plain' -d 'a=1' https://api.example.com/x",
+            None,
+        )
+        .expect("ok");
+        assert_eq!(doc.request.body.expect("body").body_type, BodyType::Text);
+
+        // JSON-looking data with no explicit type still imports as JSON.
+        let doc = curl_to_request(
+            "curl -X POST -d '{\"a\":1}' https://api.example.com/x",
+            None,
+        )
+        .expect("ok");
+        assert_eq!(doc.request.body.expect("body").body_type, BodyType::Json);
+    }
+
+    #[test]
+    fn json_body_is_preserved_byte_for_byte() {
+        // Reformatting the payload would change what a re-exported request
+        // sends, so the imported text must come back unchanged.
+        let doc = curl_to_request(
+            r#"curl -X POST -H 'Content-Type: application/json' -d '{"a":1}' https://api.example.com/x"#,
+            None,
+        )
+        .expect("ok");
+        let body = doc.request.body.expect("body");
+        assert_eq!(body.body_type, BodyType::Json);
+        assert_eq!(body.content.as_deref(), Some("{\"a\":1}"));
+
+        // Nested/minified JSON survives too.
+        let doc = curl_to_request(
+            r#"curl -X POST -d '{"n":{"x":[1,2]},"s":"v"}' https://api.example.com/x"#,
+            None,
+        )
+        .expect("ok");
+        assert_eq!(
+            doc.request.body.expect("body").content.as_deref(),
+            Some("{\"n\":{\"x\":[1,2]},\"s\":\"v\"}")
+        );
+    }
+
+    #[test]
+    fn looks_like_form_pairs_guards() {
+        assert!(looks_like_form_pairs("a=1"));
+        assert!(looks_like_form_pairs("a=1&b=2"));
+        assert!(looks_like_form_pairs("name=John Doe"));
+        assert!(!looks_like_form_pairs("plain text"));
+        assert!(!looks_like_form_pairs("{\"a\":1}"));
+        assert!(!looks_like_form_pairs("[1,2]"));
+        assert!(!looks_like_form_pairs("<xml/>"));
+        assert!(!looks_like_form_pairs(""));
+        assert!(!looks_like_form_pairs("noequals"));
     }
 }

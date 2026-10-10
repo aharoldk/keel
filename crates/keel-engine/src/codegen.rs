@@ -306,22 +306,88 @@ fn node_snippet(doc: &RequestDoc) -> String {
     let p = plan(doc);
     let is_https = !p.url.starts_with("http://");
     let module = if is_https { "https" } else { "http" };
-    let (body_expr, prelude) = js_body_expr(doc.request.body.as_ref());
-    let mut out = format!("const {module} = require(\"node:{module}\");\n\n");
-    if let Some(pre) = &prelude {
-        out.push_str(pre);
+
+    let mut prelude: Vec<String> = Vec::new();
+    let mut write_expr: Option<String> = None;
+    let mut content_type: Option<String> = None;
+    let mut needs_fs = false;
+
+    // `req.write` only accepts a string or a Buffer, so every body type is
+    // serialized to one of those here — FormData and URLSearchParams objects
+    // are rejected with ERR_INVALID_ARG_TYPE.
+    if let Some(body) = &doc.request.body {
+        match body.body_type {
+            BodyType::None => {}
+            BodyType::Json | BodyType::Text | BodyType::Xml => {
+                prelude.push(format!("const payload = {};", lit(&raw_json(body))));
+                write_expr = Some("payload".into());
+            }
+            BodyType::Graphql => {
+                prelude.push(format!(
+                    "const payload = JSON.stringify({});",
+                    serde_json::to_string(&graphql_payload(body)).expect("json")
+                ));
+                write_expr = Some("payload".into());
+            }
+            BodyType::FormUrlencoded => {
+                let query = enabled_items(body)
+                    .into_iter()
+                    .map(|kv| format!("{}={}", kv.name, kv.value))
+                    .collect::<Vec<_>>()
+                    .join("&");
+                prelude.push(format!("const payload = {};", lit(&query)));
+                write_expr = Some("payload".into());
+            }
+            BodyType::Multipart => {
+                prelude.push(
+                    "const boundary = \"--------------------------\" + Math.random().toString(36).slice(2);"
+                        .into(),
+                );
+                prelude.push("const parts = [];".into());
+                for kv in enabled_items(body) {
+                    if kv.kind.as_deref() == Some("file") {
+                        let file_name = kv.value.rsplit(['/', '\\']).next().unwrap_or("file");
+                        prelude.push(format!(
+                            "parts.push(Buffer.from(\"--\" + boundary + \"\\r\\nContent-Disposition: form-data; name=\" + {} + \"; filename=\" + {} + \"\\r\\nContent-Type: application/octet-stream\\r\\n\\r\\n\"));",
+                            lit(&kv.name),
+                            lit(file_name)
+                        ));
+                        prelude.push(format!("parts.push(fs.readFileSync({}));", lit(&kv.value)));
+                        prelude.push("parts.push(Buffer.from(\"\\r\\n\"));".into());
+                        needs_fs = true;
+                    } else {
+                        prelude.push(format!(
+                            "parts.push(Buffer.from(\"--\" + boundary + \"\\r\\nContent-Disposition: form-data; name=\" + {} + \"\\r\\n\\r\\n\" + {} + \"\\r\\n\"));",
+                            lit(&kv.name),
+                            lit(&kv.value)
+                        ));
+                    }
+                }
+                prelude.push("parts.push(Buffer.from(\"--\" + boundary + \"--\\r\\n\"));".into());
+                prelude.push("const payload = Buffer.concat(parts);".into());
+                write_expr = Some("payload".into());
+                content_type = Some("\"multipart/form-data; boundary=\" + boundary".into());
+            }
+            BodyType::Binary => {
+                let path = body.path.clone().unwrap_or_default();
+                prelude.push(format!("const payload = fs.readFileSync({});", lit(&path)));
+                write_expr = Some("payload".into());
+                needs_fs = true;
+            }
+        }
+    }
+
+    let mut out = format!("const {module} = require(\"node:{module}\");\n");
+    if needs_fs {
+        out.push_str("const fs = require(\"node:fs\");\n");
+    }
+    out.push('\n');
+    for line in &prelude {
+        out.push_str(line);
         out.push('\n');
     }
-    let has_body = body_expr.is_some();
-    if has_body {
-        // The expression is either a literal string or JSON.stringify(...) —
-        // both are valid `req.write` arguments except FormData.
-        let expr = body_expr.clone().unwrap();
-        if expr == "formData" {
-            out.push_str("// TODO: multipart — serialize formData or build a boundary manually.\n");
-        } else {
-            out.push_str(&format!("const payload = {expr};\n\n"));
-        }
+    if !prelude.is_empty() {
+        out.push('\n');
     }
     out.push_str(&format!(
         "const req = {module}.request({}, {{\n  method: {},\n  headers: {},\n}}, (res) => {{\n  let data = \"\";\n  res.on(\"data\", (chunk) => (data += chunk));\n  res.on(\"end\", () => console.log(data));\n}});\n\nreq.on(\"error\", console.error);\n",
@@ -329,8 +395,11 @@ fn node_snippet(doc: &RequestDoc) -> String {
         lit(&p.method),
         js_headers_obj(&p.headers).replace("\n    ", "\n      ")
     ));
-    if has_body && body_expr.as_deref() != Some("formData") {
-        out.push_str("req.write(payload);\n");
+    if let Some(ct) = content_type {
+        out.push_str(&format!("req.setHeader(\"Content-Type\", {ct});\n"));
+    }
+    if let Some(expr) = write_expr {
+        out.push_str(&format!("req.write({expr});\n"));
     }
     out.push_str("req.end();\n");
     out
@@ -450,7 +519,9 @@ fn python_snippet(doc: &RequestDoc) -> String {
 
 fn httpie_snippet(doc: &RequestDoc) -> String {
     let p = plan(doc);
-    let mut args: Vec<String> = vec!["http".into()];
+    // `--ignore-stdin` keeps the command from hanging on (or mixing with) a
+    // non-TTY stdin when the snippet is run from a script or a pipe.
+    let mut args: Vec<String> = vec!["http --ignore-stdin".into()];
     let mut pipe_prefix = String::new();
 
     let mut body = doc.request.body.as_ref();
@@ -617,7 +688,11 @@ fn go_snippet(doc: &RequestDoc) -> String {
     }
     out.push_str(")\n\nfunc main() {\n");
     for line in &prelude {
-        out.push_str(&format!("\t{line}\n"));
+        // Multi-line entries (error checks) carry their own relative indent;
+        // prefix every line so the block stays inside `main`.
+        for part in line.split('\n') {
+            out.push_str(&format!("\t{part}\n"));
+        }
     }
     out.push_str(&format!(
         "\treq, err := http.NewRequest({}, {}, {body_expr})\n\tif err != nil {{\n\t\tpanic(err)\n\t}}\n",
@@ -642,9 +717,26 @@ fn go_snippet(doc: &RequestDoc) -> String {
 
 // ---------- Java (OkHttp) ----------
 
+/// A valid Java class name derived from the request name.
+fn java_class_name(doc: &RequestDoc) -> String {
+    let cleaned: String = doc
+        .name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if cleaned.is_empty() || cleaned.starts_with(|c: char| c.is_ascii_digit()) {
+        return format!("Keel{cleaned}");
+    }
+    cleaned
+}
+
 fn java_snippet(doc: &RequestDoc) -> String {
     let p = plan(doc);
-    let mut out = String::from("OkHttpClient client = new OkHttpClient();\n\n");
+    let mut imports: Vec<&str> = vec![
+        "okhttp3.OkHttpClient",
+        "okhttp3.Request",
+        "okhttp3.Response",
+    ];
 
     let mut body_decl = String::new();
     let call = p.method.clone();
@@ -675,6 +767,15 @@ fn java_snippet(doc: &RequestDoc) -> String {
             BodyType::Binary => (Some("application/octet-stream"), None),
         };
         if body.body_type == BodyType::Multipart {
+            imports.push("okhttp3.MultipartBody");
+            imports.push("okhttp3.RequestBody");
+            if enabled_items(body)
+                .iter()
+                .any(|kv| kv.kind.as_deref() == Some("file"))
+            {
+                imports.push("okhttp3.MediaType");
+                imports.push("java.io.File");
+            }
             let mut builder =
                 "RequestBody body = new MultipartBody.Builder().setType(MultipartBody.FORM)\n"
                     .to_string();
@@ -698,7 +799,11 @@ fn java_snippet(doc: &RequestDoc) -> String {
             body_decl.push_str(&builder);
             body_decl.push('\n');
         } else if let Some(ct) = content_type {
+            imports.push("okhttp3.RequestBody");
+            imports.push("okhttp3.MediaType");
             let java_body = if body.body_type == BodyType::Binary {
+                imports.push("java.nio.file.Files");
+                imports.push("java.nio.file.Paths");
                 format!(
                     "RequestBody body = RequestBody.create(MediaType.parse(\"{ct}\"), Files.readAllBytes(Paths.get({})));",
                     lit(body.path.as_deref().unwrap_or(""))
@@ -713,26 +818,58 @@ fn java_snippet(doc: &RequestDoc) -> String {
             body_decl.push('\n');
         }
     }
+    imports.sort();
+    imports.dedup();
 
-    out.push_str(&body_decl);
+    let mut stmts = String::from("OkHttpClient client = new OkHttpClient();\n\n");
+    stmts.push_str(&body_decl);
     if !body_decl.is_empty() {
-        out.push('\n');
+        stmts.push('\n');
     }
-    out.push_str("Request request = new Request.Builder()\n");
-    out.push_str(&format!("    .url({})\n", lit(&p.url)));
+    stmts.push_str("Request request = new Request.Builder()\n");
+    stmts.push_str(&format!("    .url({})\n", lit(&p.url)));
     for (k, v) in &p.headers {
-        out.push_str(&format!("    .addHeader({}, {})\n", lit(k), lit(v)));
+        stmts.push_str(&format!("    .addHeader({}, {})\n", lit(k), lit(v)));
     }
     let has_body = !body_decl.trim().is_empty();
     if has_body {
-        out.push_str(&format!("    .method({}, body)\n", lit(&call)));
+        stmts.push_str(&format!("    .method({}, body)\n", lit(&call)));
     } else if call == "GET" {
-        out.push_str("    .get()\n");
+        stmts.push_str("    .get()\n");
+    } else if matches!(call.as_str(), "POST" | "PUT" | "PATCH") {
+        // OkHttp rejects .method("POST", null) — send an empty body instead.
+        imports.push("okhttp3.RequestBody");
+        imports.sort();
+        imports.dedup();
+        stmts.push_str(&format!(
+            "    .method({}, RequestBody.create(null, new byte[0]))\n",
+            lit(&call)
+        ));
     } else {
-        out.push_str(&format!("    .method({}, null)\n", lit(&call)));
+        stmts.push_str(&format!("    .method({}, null)\n", lit(&call)));
     }
-    out.push_str("    .build();\n\n");
-    out.push_str("try (Response response = client.newCall(request).execute()) {\n    System.out.println(response.body().string());\n}\n");
+    stmts.push_str("    .build();\n\n");
+    stmts.push_str(
+        "try (Response response = client.newCall(request).execute()) {\n    System.out.println(response.body().string());\n}",
+    );
+
+    let class_name = java_class_name(doc);
+    let mut out = String::new();
+    for imp in &imports {
+        out.push_str(&format!("import {imp};\n"));
+    }
+    out.push('\n');
+    // Not `public` so the snippet compiles in a file of any name.
+    out.push_str(&format!("class {class_name} {{\n"));
+    out.push_str("    public static void main(String[] args) throws Exception {\n");
+    for line in stmts.lines() {
+        if line.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&format!("    {line}\n"));
+        }
+    }
+    out.push_str("    }\n}\n");
     out
 }
 
@@ -911,7 +1048,10 @@ request:
 "#,
         );
         let s = generate_code(&get, "httpie").expect("httpie");
-        assert!(s.contains("http GET \"https://x.test/items?q=a\""), "{s}");
+        assert!(
+            s.contains("http --ignore-stdin GET \"https://x.test/items?q=a\""),
+            "{s}"
+        );
 
         let form = doc(
             r#"
@@ -952,6 +1092,91 @@ request:
     }
 
     #[test]
+    fn native_node_multipart_encodes_parts_by_hand() {
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "https://x.test/u"
+  body:
+    type: multipart
+    items:
+      - name: note
+        value: hello
+      - name: file
+        value: ./doc.pdf
+        kind: file
+"#,
+        );
+        let s = generate_code(&d, "native-node").expect("node multipart");
+        assert!(!s.contains("TODO"), "no TODO left: {s}");
+        assert!(!s.contains("FormData"), "req.write rejects FormData: {s}");
+        assert!(s.contains("const fs = require(\"node:fs\");"), "{s}");
+        assert!(s.contains("const boundary = "), "{s}");
+        assert!(
+            s.contains("Content-Disposition: form-data; name=\" + \"note\" + \"\\r\\n\\r\\n\""),
+            "{s}"
+        );
+        assert!(s.contains("\"hello\""), "{s}");
+        assert!(
+            s.contains("Content-Disposition: form-data; name=\" + \"file\" + \"; filename=\" + \"doc.pdf\""),
+            "{s}"
+        );
+        assert!(s.contains("fs.readFileSync(\"./doc.pdf\")"), "{s}");
+        assert!(s.contains("const payload = Buffer.concat(parts);"), "{s}");
+        assert!(s.contains("req.write(payload);"), "{s}");
+        assert!(
+            s.contains("req.setHeader(\"Content-Type\", \"multipart/form-data; boundary=\" + boundary);"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn native_node_form_urlencoded_writes_a_query_string() {
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "https://x.test/u"
+  body:
+    type: form-urlencoded
+    items:
+      - name: note
+        value: hello
+"#,
+        );
+        let s = generate_code(&d, "native-node").expect("node form");
+        assert!(!s.contains("URLSearchParams"), "req.write rejects it: {s}");
+        assert!(s.contains("const payload = \"note=hello\";"), "{s}");
+        assert!(s.contains("req.write(payload);"), "{s}");
+    }
+
+    #[test]
+    fn native_node_binary_reads_the_file_synchronously() {
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "https://x.test/u"
+  body:
+    type: binary
+    path: ./blob.bin
+"#,
+        );
+        let s = generate_code(&d, "native-node").expect("node binary");
+        assert!(s.contains("const fs = require(\"node:fs\");"), "{s}");
+        assert!(s.contains("const payload = fs.readFileSync(\"./blob.bin\");"), "{s}");
+        assert!(!s.contains("import "), "no ESM import in a CJS snippet: {s}");
+        assert!(s.contains("req.write(payload);"), "{s}");
+    }
+
+    #[test]
     fn native_node_http_module_and_body() {
         let s = generate_code(&doc(FULL), "native-node").expect("node");
         assert!(s.contains("require(\"node:https\")"), "{s}");
@@ -988,26 +1213,153 @@ request:
     }
 
     #[test]
+    fn java_post_without_a_body_sends_an_empty_body() {
+        // OkHttp's Request.Builder.method("POST", null) throws
+        // IllegalArgumentException, so body-requiring methods get an empty body.
+        for method in ["POST", "PUT", "PATCH"] {
+            let d = doc(&format!(
+                "schemaVersion: \"1\"\nname: t\nrequest:\n  method: {method}\n  url: \"http://x.test/u\"\n"
+            ));
+            let s = generate_code(&d, "java-okhttp").expect("java");
+            assert!(
+                s.contains(&format!(
+                    "        .method(\"{method}\", RequestBody.create(null, new byte[0]))"
+                )),
+                "{method}: {s}"
+            );
+            assert!(s.contains("import okhttp3.RequestBody;"), "{method}: {s}");
+        }
+
+        // GET and DELETE are fine with a null body.
+        for method in ["GET", "DELETE"] {
+            let d = doc(&format!(
+                "schemaVersion: \"1\"\nname: t\nrequest:\n  method: {method}\n  url: \"http://x.test/u\"\n"
+            ));
+            let s = generate_code(&d, "java-okhttp").expect("java");
+            assert!(!s.contains("new byte[0]"), "{method}: {s}");
+        }
+    }
+
+    #[test]
     fn java_okhttp_structure() {
         let s = generate_code(&doc(FULL), "java-okhttp").expect("java");
+        // compilable unit: imports, class wrapper, main
+        assert!(s.contains("import okhttp3.OkHttpClient;"), "{s}");
+        assert!(s.contains("import okhttp3.Request;"), "{s}");
+        assert!(s.contains("import okhttp3.Response;"), "{s}");
+        assert!(s.contains("import okhttp3.RequestBody;"), "{s}");
+        assert!(s.contains("import okhttp3.MediaType;"), "{s}");
+        assert!(s.contains("class CreateUser {"), "{s}");
+        assert!(s.contains("public static void main(String[] args) throws Exception {"), "{s}");
+        assert!(s.contains("    OkHttpClient client = new OkHttpClient();"), "{s}");
+        assert!(s.contains("        System.out.println(response.body().string());"), "{s}");
         assert!(s.contains("new OkHttpClient()"), "{s}");
         assert!(s.contains("RequestBody.create(MediaType.parse(\"application/json\")"));
-        assert!(s.contains(".url(\"{{baseUrl}}/users?notify=true\")"));
-        assert!(s.contains(".method(\"POST\", body)"));
-        assert!(s.contains(".addHeader(\"Accept\", \"application/json\")"));
+        assert!(s.contains("        .url(\"{{baseUrl}}/users?notify=true\")"), "{s}");
+        assert!(s.contains("        .method(\"POST\", body)"));
+        assert!(s.contains("        .addHeader(\"Accept\", \"application/json\")"));
         assert!(s.contains("client.newCall(request).execute()"));
 
-        let get = doc(
+        let http_get = doc(
             r#"
 schemaVersion: "1"
 name: t
 request:
   method: GET
-  url: "https://x.test/p"
+  url: "http://x.test/ping"
 "#,
         );
-        let s = generate_code(&get, "java-okhttp").expect("java get");
-        assert!(s.contains(".get()"), "{s}");
+        let s = generate_code(&http_get, "java-okhttp").expect("java http");
+        assert!(s.contains("class t {"), "{s}");
+        assert!(s.contains("        .get()"), "{s}");
+        // a GET with no body needs no body imports
+        assert!(!s.contains("import okhttp3.RequestBody;"), "{s}");
+        assert!(!s.contains("import okhttp3.MediaType;"), "{s}");
+    }
+
+    #[test]
+    fn java_class_name_is_a_valid_identifier() {
+        for (name, expected) in [
+            ("Create User", "CreateUser"),
+            ("123 stats", "Keel123stats"),
+            ("", "Keel"),
+            ("a-b c.d", "abcd"),
+        ] {
+            let d = doc(&format!(
+                "schemaVersion: \"1\"\nname: \"{name}\"\nrequest:\n  method: GET\n  url: \"http://x.test\"\n"
+            ));
+            let s = generate_code(&d, "java-okhttp").expect("java");
+            assert!(s.contains(&format!("class {expected} {{")), "{name}: {s}");
+        }
+    }
+
+    #[test]
+    fn java_multipart_imports_match_the_parts() {
+        let with_file = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "http://x.test/u"
+  body:
+    type: multipart
+    items:
+      - name: note
+        value: hello
+      - name: file
+        value: doc.pdf
+        kind: file
+"#,
+        );
+        let s = generate_code(&with_file, "java-okhttp").expect("java");
+        assert!(s.contains("import okhttp3.MultipartBody;"), "{s}");
+        assert!(s.contains("import okhttp3.MediaType;"), "{s}");
+        assert!(s.contains("import java.io.File;"), "{s}");
+        assert!(
+            s.contains("        .addFormDataPart(\"file\", \"doc.pdf\", RequestBody.create("),
+            "{s}"
+        );
+
+        let text_only = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "http://x.test/u"
+  body:
+    type: multipart
+    items:
+      - name: note
+        value: hello
+"#,
+        );
+        let s = generate_code(&text_only, "java-okhttp").expect("java");
+        assert!(s.contains("import okhttp3.MultipartBody;"), "{s}");
+        // no file parts -> no File or MediaType needed
+        assert!(!s.contains("import java.io.File;"), "{s}");
+        assert!(!s.contains("import okhttp3.MediaType;"), "{s}");
+    }
+
+    #[test]
+    fn java_binary_imports_nio() {
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "http://x.test/u"
+  body:
+    type: binary
+    path: blob.bin
+"#,
+        );
+        let s = generate_code(&d, "java-okhttp").expect("java");
+        assert!(s.contains("import java.nio.file.Files;"), "{s}");
+        assert!(s.contains("import java.nio.file.Paths;"), "{s}");
+        assert!(s.contains("Files.readAllBytes(Paths.get(\"blob.bin\"))"), "{s}");
     }
 
     #[test]

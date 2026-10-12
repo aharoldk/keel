@@ -24,13 +24,14 @@ import { tags as t } from "@lezer/highlight";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { javascript } from "@codemirror/lang-javascript";
+import { StreamLanguage } from "@codemirror/language";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { useKeel } from "@/state/store";
 import { useEditContextMenu } from "@/components/EditContextMenu";
 import type { VariableSuggestion } from "./variables";
 
-export type CodeLanguage = "json" | "yaml" | "javascript" | "text";
+export type CodeLanguage = "json" | "yaml" | "javascript" | "graphql" | "text";
 
 interface CodeEditorProps {
   value: string;
@@ -129,6 +130,115 @@ function highlightPrevTags(): ViewPlugin<{ decorations: DecorationSet }> {
     while ((m = re.exec(text))) {
       ranges.push(
         Decoration.mark({ attributes: { style: "color: var(--method-patch)" } }).range(
+          m.index,
+          m.index + m[0].length,
+        ),
+      );
+    }
+    return Decoration.set(ranges);
+  };
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = make(view.state.doc.toString());
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged) this.decorations = make(update.state.doc.toString());
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
+}
+
+const GRAPHQL_KEYWORDS = new Set([
+  "query",
+  "mutation",
+  "subscription",
+  "fragment",
+  "on",
+  "type",
+  "interface",
+  "union",
+  "enum",
+  "input",
+  "scalar",
+  "schema",
+  "directive",
+  "extend",
+  "implements",
+  "repeatable",
+]);
+
+const GRAPHQL_ATOMS = new Set(["true", "false", "null"]);
+
+/** Lexer for GraphQL documents — enough to color queries, mutations and SDL. */
+const graphqlMode = StreamLanguage.define<{ blockString: boolean }>({
+  name: "graphql",
+  languageData: { commentTokens: { line: "#" } },
+  startState: () => ({ blockString: false }),
+  token(stream, state) {
+    if (state.blockString) {
+      if (stream.match('"""')) {
+        state.blockString = false;
+        return "string";
+      }
+      stream.next();
+      return "string";
+    }
+    if (stream.eatSpace()) return null;
+    if (stream.eol()) return null;
+    const ch = stream.peek() ?? "";
+    if (ch === "#") {
+      stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.match('"""')) {
+      state.blockString = true;
+      return "string";
+    }
+    if (stream.eat('"')) {
+      while (!stream.eol()) {
+        if (stream.eat("\\")) {
+          stream.next();
+          continue;
+        }
+        if (stream.eat('"')) break;
+        stream.next();
+      }
+      return "string";
+    }
+    if (/[0-9-]/.test(ch)) {
+      stream.eat(/[+-]/);
+      stream.eatWhile(/[0-9]/);
+      if (stream.eat(".")) stream.eatWhile(/[0-9]/);
+      stream.eat(/[eE]/);
+      stream.eat(/[+-]/);
+      stream.eatWhile(/[0-9]/);
+      return "number";
+    }
+    if (/[_A-Za-z]/.test(ch)) {
+      stream.next();
+      stream.eatWhile(/[_0-9A-Za-z]/);
+      const word = stream.current();
+      if (GRAPHQL_KEYWORDS.has(word)) return "keyword";
+      if (GRAPHQL_ATOMS.has(word)) return "atom";
+      return "propertyName";
+    }
+    stream.next();
+    return "punctuation";
+  },
+});
+
+/** Colors GraphQL `$variables` with the amber value accent. */
+function highlightGqlVariables(): ViewPlugin<{ decorations: DecorationSet }> {
+  const make = (text: string) => {
+    const ranges: Range<Decoration>[] = [];
+    const re = /\$[_A-Za-z][_0-9A-Za-z]*/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      ranges.push(
+        Decoration.mark({ attributes: { style: "color: var(--method-put)" } }).range(
           m.index,
           m.index + m[0].length,
         ),
@@ -518,6 +628,7 @@ export default function CodeEditor({
     if (language === "json") exts.push(json(), jsonLinter);
     else if (language === "yaml") exts.push(yaml());
     else if (language === "javascript") exts.push(javascript());
+    else if (language === "graphql") exts.push(graphqlMode, highlightGqlVariables());
     if (placeholder && !readOnly) exts.push(cmPlaceholder(placeholder));
     return exts;
   }, [language, theme, fontSize, placeholder, readOnly, appearance, variables]);

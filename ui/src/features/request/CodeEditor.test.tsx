@@ -34,4 +34,26 @@ describe("CodeEditor theme", () => {
     render(<CodeEditor value="plain" readOnly />);
     expect(injectedCss()).toMatch(/color-scheme:\s*light/);
   });
+
+  it("colors GraphQL documents — keywords, strings, fields and variables", () => {
+    const { container } = render(
+      <CodeEditor
+        value={'query GetUser($id: ID!) {\n  user(id: $id, role: "admin") {\n    name\n  }\n}\n'}
+        language="graphql"
+        readOnly
+      />,
+    );
+    const css = injectedCss();
+    const keyword = /\.([^\s{]+)\s*\{\s*color:\s*var\(--method-patch\)/.exec(css);
+    expect(keyword, "a highlight rule using var(--method-patch)").toBeTruthy();
+    const field = /\.([^\s{]+)\s*\{\s*color:\s*var\(--method-get\)/.exec(css);
+    expect(field, "a highlight rule using var(--method-get)").toBeTruthy();
+    const string = /\.([^\s{]+)\s*\{\s*color:\s*var\(--method-post\)/.exec(css);
+    expect(string, "a highlight rule using var(--method-post)").toBeTruthy();
+    expect(container.querySelector(`.${keyword![1]}`)?.textContent).toBe("query");
+    expect(container.querySelector(`.${string![1]}`)?.textContent).toBe('"admin"');
+    // $id is decorated with the amber value accent
+    const variable = container.querySelector('[style*="--method-put"]');
+    expect(variable?.textContent).toBe("$id");
+  });
 });

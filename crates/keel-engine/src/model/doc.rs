@@ -491,6 +491,9 @@ pub struct GraphqlSpec {
     /// The query text. HTTP sends use [`BodyType::Graphql`] instead.
     #[serde(default, skip_serializing_if = "skip_none")]
     pub operation: Option<String>,
+    /// Operation name written by the query builder.
+    #[serde(default, skip_serializing_if = "skip_none")]
+    pub name: Option<String>,
     /// Endpoint override.
     #[serde(default, skip_serializing_if = "skip_none")]
     pub endpoint: Option<String>,

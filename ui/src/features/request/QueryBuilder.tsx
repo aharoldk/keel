@@ -18,6 +18,7 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
   const [operation, setOperation] = useState<"query" | "mutation" | "subscription">(
     doc.graphql?.operation ?? "query",
   );
+  const [name, setName] = useState(doc.graphql?.name ?? "");
   const [picked, setPicked] = useState<BuiltField[]>([]);
 
   const rootName = schema
@@ -49,19 +50,18 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
   };
 
   const apply = () => {
-    const query = buildQuery(operation, picked);
-    const body = doc.request.body;
+    const built = buildQuery(operation, picked, name);
     setDoc({
       ...doc,
       protocol: "graphql",
-      graphql: { ...doc.graphql, operation },
+      graphql: { ...doc.graphql, operation, name: name.trim() || undefined },
       request: {
         ...doc.request,
         method: "POST",
         body: {
           type: "graphql",
-          query,
-          variables: body?.type === "graphql" ? body.variables : "",
+          query: built.query,
+          variables: built.variables,
         },
       },
     });
@@ -80,6 +80,12 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
           <option value="mutation">mutation</option>
           <option value="subscription">subscription</option>
         </select>
+        <TextInput
+          className="h-7 w-28 shrink-0 font-mono"
+          placeholder="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
         <Button variant="ghost" className="h-7" onClick={() => void load()} disabled={loading}>
           {loading ? "Loading…" : schema ? "Reload schema" : "Load schema"}
         </Button>
@@ -190,6 +196,7 @@ function FieldNode({
                       a.name === arg.name
                         ? e.target.value
                         : (field.args.find((x) => x.name === a.name)?.value ?? ""),
+                    type: typeString(a.type),
                   }));
                   onChange({ ...field, args });
                 }}

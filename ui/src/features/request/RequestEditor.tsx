@@ -570,7 +570,7 @@ function BodyTab({
               <CodeEditor
                 value={body.query}
                 onChange={(v) => setBody({ ...body, query: v })}
-                language="text"
+                language="graphql"
                 appearance="editor"
                 lineNumbers
                 height="100%"

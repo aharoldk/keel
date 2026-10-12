@@ -68,6 +68,7 @@ export type RequestProtocol = "http" | "graphql" | "websocket" | "grpc";
 
 export interface GraphqlSpec {
   operation?: "query" | "mutation" | "subscription";
+  name?: string;
   endpoint?: string;
 }
 

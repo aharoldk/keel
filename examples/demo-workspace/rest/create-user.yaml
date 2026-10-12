@@ -1,0 +1,19 @@
+schemaVersion: '1'
+name: Create user
+kind: request
+description: raw body with language json → BodyType::Json.
+request:
+  method: POST
+  url: '{{baseUrl}}/api/users'
+  headers:
+  - name: Content-Type
+    value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "name": "Keel Importer",
+        "email": "import@keel.dev",
+        "age": 30,
+        "tags": ["postman", "mock"]
+      }

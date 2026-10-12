@@ -1,0 +1,18 @@
+schemaVersion: '1'
+name: Echo — header flags
+kind: request
+description: Enabled/disabled/empty header rows — the server echoes headers back so you can see what was sent.
+request:
+  method: POST
+  url: '{{baseUrl}}/api/echo'
+  headers:
+  - name: X-Enabled
+    value: yes
+  - name: X-Disabled
+    value: imports-as-enabled
+    enabled: false
+  - name: X-Empty-Value
+    value: ''
+  - name: X-Dropped
+    value: ''
+    enabled: false

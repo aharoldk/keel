@@ -1,0 +1,14 @@
+schemaVersion: '1'
+name: GraphQL (https)
+kind: request
+description: GraphQL over https.
+request:
+  method: POST
+  url: '{{baseUrlTls}}/graphql'
+  headers:
+  - name: Content-Type
+    value: application/json
+  body:
+    type: graphql
+    query: query { serverTime }
+    variables: ''

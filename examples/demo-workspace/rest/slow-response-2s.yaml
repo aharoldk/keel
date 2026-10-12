@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Slow response (2s)
+kind: request
+description: For timeout / loading-state testing.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/delay'
+  params:
+  - name: ms
+    value: '2000'

@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Bearer token
+kind: request
+description: AuthType::Bearer.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'
+auth:
+  type: bearer
+  token: demo-bearer-token

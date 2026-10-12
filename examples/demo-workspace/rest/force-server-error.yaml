@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Force server error
+kind: request
+description: Query rows from url.query → params rows. Returns the given status.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/status'
+  params:
+  - name: code
+    value: '500'

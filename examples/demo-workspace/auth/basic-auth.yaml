@@ -1,0 +1,11 @@
+schemaVersion: '1'
+name: Basic auth
+kind: request
+description: AuthType::Basic.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'
+auth:
+  type: basic
+  username: keel
+  password: s3cret

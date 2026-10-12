@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: Saved response examples
+kind: request
+description: 'Expected: 2 saved examples skipped — keel has no example-response store.'
+request:
+  method: GET
+  url: '{{baseUrl}}/api/users'

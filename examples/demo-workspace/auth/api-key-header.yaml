@@ -1,0 +1,12 @@
+schemaVersion: '1'
+name: API key (header)
+kind: request
+description: AuthType::Apikey, location header.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'
+auth:
+  type: apikey
+  key: X-Api-Key
+  value: demo-api-key
+  in: header

@@ -1,0 +1,8 @@
+schemaVersion: '1'
+name: ms-keel-tester
+description: Imported from Postman collection `ms-keel-tester`
+variables:
+  baseUrl: http://localhost:8080
+  baseUrlTls: https://localhost:8443
+  missingUserId: '9999'
+  userId: '1'

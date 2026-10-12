@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Delete user
+kind: request
+description: DELETE method.
+request:
+  method: DELETE
+  url: '{{baseUrl}}/api/users/:id'
+  pathParams:
+  - name: id
+    value: '{{userId}}'

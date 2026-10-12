@@ -1,0 +1,20 @@
+schemaVersion: '1'
+name: Pre-request + test scripts
+kind: request
+description: Scripts are imported verbatim; run them to check the pm.* runtime.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/users'
+scripts:
+  preRequest: |-
+    console.log('pre-request: listing users');
+    keel.variables.set('lastListed', new Date().toISOString());
+  postResponse: |-
+    pm.test('status is 200', function () {
+      pm.response.to.have.status(200);
+    });
+
+    pm.test('body has users', function () {
+      var json = pm.response.json();
+      pm.expect(json.users.length).to.be.above(0);
+    });

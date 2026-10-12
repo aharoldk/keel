@@ -1,0 +1,12 @@
+schemaVersion: '1'
+name: API key (query)
+kind: request
+description: AuthType::Apikey, location query.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'
+auth:
+  type: apikey
+  key: api_key
+  value: demo-api-key
+  in: query

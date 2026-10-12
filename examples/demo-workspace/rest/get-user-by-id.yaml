@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Get user by id
+kind: request
+description: URL object form with a path variable → pathParams row.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/users/:id'
+  pathParams:
+  - name: id
+    value: '{{userId}}'

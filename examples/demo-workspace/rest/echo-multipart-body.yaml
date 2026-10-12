@@ -1,0 +1,14 @@
+schemaVersion: '1'
+name: Echo — multipart body
+kind: request
+description: formdata body → Multipart rows.
+request:
+  method: POST
+  url: '{{baseUrl}}/api/echo'
+  body:
+    type: multipart
+    items:
+    - name: name
+      value: keel
+    - name: mode
+      value: multipart

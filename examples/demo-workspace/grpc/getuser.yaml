@@ -1,0 +1,11 @@
+schemaVersion: '1'
+name: GetUser
+kind: request
+protocol: grpc
+grpc:
+  service: demo.v1.Users
+  method: GetUser
+  proto: ''
+request:
+  method: GET
+  url: http://localhost:50052

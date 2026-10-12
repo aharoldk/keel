@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: No auth (overrides collection bearer)
+kind: request
+description: Explicit noauth — no auth block in the imported request.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'

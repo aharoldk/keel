@@ -1,0 +1,17 @@
+schemaVersion: '1'
+name: Echo — urlencoded body
+kind: request
+description: urlencoded body → FormUrlencoded rows; disabled row imports as enabled (keel warns).
+request:
+  method: POST
+  url: '{{baseUrl}}/api/echo'
+  body:
+    type: form-urlencoded
+    items:
+    - name: username
+      value: keel
+    - name: scope
+      value: import-test
+    - name: disabled_field
+      value: should-import-enabled
+      enabled: false

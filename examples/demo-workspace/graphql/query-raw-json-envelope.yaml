@@ -1,0 +1,16 @@
+schemaVersion: '1'
+name: Query — raw JSON envelope
+kind: request
+description: Same endpoint via a plain JSON body — keel sends it as-is.
+request:
+  method: POST
+  url: '{{baseUrl}}/graphql'
+  headers:
+  - name: Content-Type
+    value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "query": "query { users(limit: 2) { users { id name } } }"
+      }

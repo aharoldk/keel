@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: List users (https)
+kind: request
+description: https:// with self-signed cert.
+request:
+  method: GET
+  url: '{{baseUrlTls}}/api/users'

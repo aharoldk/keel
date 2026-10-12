@@ -1,0 +1,28 @@
+schemaVersion: '1'
+name: Mutation — create user
+kind: request
+description: GraphQL mutation through the same body type.
+request:
+  method: POST
+  url: '{{baseUrl}}/graphql'
+  headers:
+  - name: Content-Type
+    value: application/json
+  body:
+    type: graphql
+    query: |-
+      mutation CreateUser($name: String!, $email: String, $tags: [String!]) {
+        createUser(name: $name, email: $email, tags: $tags) {
+          id
+          name
+          email
+          active
+          tags
+        }
+      }
+    variables: |-
+      {
+        "name": "Keel",
+        "email": "keel@mock.dev",
+        "tags": ["graphql", "import"]
+      }

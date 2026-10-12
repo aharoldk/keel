@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: Echo (inherits folder auth)
+kind: request
+description: No request-level auth — the folder's digest auth applies.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'

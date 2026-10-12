@@ -1,0 +1,20 @@
+schemaVersion: '1'
+name: Update user
+kind: request
+description: PUT + path variable.
+request:
+  method: PUT
+  url: '{{baseUrl}}/api/users/:id'
+  headers:
+  - name: Content-Type
+    value: application/json
+  pathParams:
+  - name: id
+    value: '{{userId}}'
+  body:
+    type: json
+    content: |-
+      {
+        "name": "Updated Name",
+        "email": "updated@keel.dev"
+      }

@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: List users
+kind: request
+description: Raw-string URL form. Returns 3 seeded users.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/users'

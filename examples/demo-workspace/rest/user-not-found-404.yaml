@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: User not found (404)
+kind: request
+description: Known 404 path.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/users/:id'
+  pathParams:
+  - name: id
+    value: '{{missingUserId}}'

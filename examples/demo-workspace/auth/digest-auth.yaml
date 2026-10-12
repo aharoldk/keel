@@ -1,0 +1,11 @@
+schemaVersion: '1'
+name: Digest auth
+kind: request
+description: AuthType::Digest.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/echo'
+auth:
+  type: digest
+  username: keel
+  password: s3cret

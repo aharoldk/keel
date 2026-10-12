@@ -1,0 +1,8 @@
+schemaVersion: '1'
+kind: folder
+name: Folder auth — digest
+description: Folder-level auth lands in folder.yaml and is inherited by requests below
+auth:
+  type: digest
+  username: folder-user
+  password: folder-pass

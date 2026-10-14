@@ -28,7 +28,11 @@ import { SplitPane } from "@/components/SplitPane";
 import { Button, EmptyState, IconButton, Modal, Select, TextInput } from "@/components/ui";
 import ResponseViewer from "@/features/response/ResponseViewer";
 import { cn, formatMs, methodVar, statusClass } from "@/utils";
-import { useKeel } from "@/state/store";
+import {
+  useKeel,
+  type FlowRunStep,
+  type FlowRunStepResult,
+} from "@/state/store";
 
 interface Step {
   id: string;
@@ -115,6 +119,51 @@ function canDropOn(src: string, dest: string) {
   return src !== dest && !dest.startsWith(`${src}/`) && parentFolder(src) !== dest;
 }
 
+/** Sends every step in order, publishing progress to `flowRun` as it goes.
+ * Shared by the sidebar runs and the FlowRun re-run button. */
+async function runFlowSteps(title: string, steps: FlowRunStep[]) {
+  if (steps.length === 0) return;
+  const { activeEnv, toast, setFlowRun, openFlow } = useKeel.getState();
+  let live: Record<string, FlowRunStepResult> = {};
+  const publish = (runningNow: boolean, results: Record<string, FlowRunStepResult>) =>
+    setFlowRun({ name: title, running: runningNow, steps, results });
+  openFlow();
+  publish(true, live);
+  for (const step of steps) {
+    live = { ...live, [step.id]: { status: "running" } };
+    publish(true, live);
+    try {
+      const result = await api.sendRequest(step.path, activeEnv);
+      useKeel.setState((st) => ({
+        envValuesRevision: st.envValuesRevision + 1,
+        prevRefsRevision: st.prevRefsRevision + 1,
+      }));
+      const testsFailed = result.testResults.some((t) => !t.passed);
+      const failed = Boolean(result.error) || !result.ok || testsFailed;
+      live = {
+        ...live,
+        [step.id]: {
+          status: failed ? "error" : "ok",
+          result,
+          error: result.error ?? undefined,
+        },
+      };
+      publish(true, live);
+      if (failed && step.stopOnFailure) {
+        toast(`${step.name}: ${result.error ?? "failed"}`, "error");
+        break;
+      }
+    } catch (e) {
+      const error = String(e);
+      live = { ...live, [step.id]: { status: "error", error } };
+      publish(true, live);
+      toast(`${step.name}: ${error}`, "error");
+      if (step.stopOnFailure) break;
+    }
+  }
+  publish(false, live);
+}
+
 function placeAt(
   src: string | null,
   path: string,
@@ -143,8 +192,9 @@ export function FlowPanel() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [pick, setPick] = useState("");
-  const [running, setRunning] = useState(false);
+  const running = useKeel((s) => s.flowRun?.running) ?? false;
   const [saving, setSaving] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -291,6 +341,7 @@ export function FlowPanel() {
         name: doc.name,
         steps: doc.steps.map((p) => lookup(requests, p)),
       });
+      setEditorOpen(true);
     } catch (e) {
       toast(String(e), "error");
     }
@@ -299,6 +350,7 @@ export function FlowPanel() {
   const startCreate = (folder: string) => {
     setPick("");
     setEditor({ fileName: null, folder, name: "", steps: [] });
+    setEditorOpen(true);
   };
 
   const save = async () => {
@@ -311,6 +363,7 @@ export function FlowPanel() {
       setSelected(saved);
       refresh();
       toast("Flow saved", "success");
+      setEditorOpen(false);
     } catch (e) {
       toast(String(e), "error");
     } finally {
@@ -378,10 +431,11 @@ export function FlowPanel() {
   const removeNode = async (path: string) => {
     try {
       await api.flowDelete(path);
-      if (selected === path || editor?.fileName === path) {
-        setSelected(null);
+      if (editor?.fileName === path) {
         setEditor(null);
+        setEditorOpen(false);
       }
+      if (selected === path) setSelected(null);
       refresh();
     } catch (e) {
       toast(String(e), "error");
@@ -422,48 +476,9 @@ export function FlowPanel() {
 
   const runSteps = async (title: string, steps: Step[], path: string | null) => {
     if (steps.length === 0 || running) return;
-    let live: Record<string, StepResult> = {};
-    const publish = (runningNow: boolean, results: Record<string, StepResult>) =>
-      useKeel.getState().setFlowRun({ name: title, running: runningNow, steps, results });
-    useKeel.getState().openFlow();
-    setRunning(true);
     setRunningPath(path);
-    publish(true, live);
-    for (const step of steps) {
-      live = { ...live, [step.id]: { status: "running" } };
-      publish(true, live);
-      try {
-        const result = await api.sendRequest(step.path, activeEnv);
-        useKeel.setState((st) => ({
-          envValuesRevision: st.envValuesRevision + 1,
-          prevRefsRevision: st.prevRefsRevision + 1,
-        }));
-        const testsFailed = result.testResults.some((t) => !t.passed);
-        const failed = Boolean(result.error) || !result.ok || testsFailed;
-        live = {
-          ...live,
-          [step.id]: {
-            status: failed ? "error" : "ok",
-            result,
-            error: result.error ?? undefined,
-          },
-        };
-        publish(true, live);
-        if (failed && step.stopOnFailure) {
-          toast(`${step.name}: ${result.error ?? "failed"}`, "error");
-          break;
-        }
-      } catch (e) {
-        const error = String(e);
-        live = { ...live, [step.id]: { status: "error", error } };
-        publish(true, live);
-        toast(`${step.name}: ${error}`, "error");
-        if (step.stopOnFailure) break;
-      }
-    }
-    setRunning(false);
+    await runFlowSteps(title, steps);
     setRunningPath(null);
-    publish(false, live);
   };
 
   const run = () => {
@@ -740,9 +755,9 @@ export function FlowPanel() {
       )}
 
       <Modal
-        open={editor !== null}
+        open={editorOpen}
         onClose={() => {
-          if (!running) setEditor(null);
+          if (!running) setEditorOpen(false);
         }}
         title={editor?.fileName ? "Edit flow" : "New flow"}
         width="max-w-lg"
@@ -871,14 +886,17 @@ export function FlowPanel() {
                 </Button>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="ghost" disabled={running} onClick={() => setEditor(null)}>
+                <Button type="button" variant="ghost" disabled={running} onClick={() => setEditorOpen(false)}>
                   Close
                 </Button>
                 <Button
                   type="button"
                   variant="default"
                   disabled={editor.steps.length === 0 || running}
-                  onClick={() => void run()}
+                  onClick={() => {
+                    void run();
+                    setEditorOpen(false);
+                  }}
                 >
                   <Play size={11} />
                   Run
@@ -988,8 +1006,24 @@ export function FlowRun() {
   const selected = run.steps.find((s) => s.id === openId);
   const selectedResult = selected ? run.results[selected.id] : undefined;
 
+  const rerun = () => {
+    if (run.running || run.steps.length === 0) return;
+    void runFlowSteps(run.name, run.steps);
+  };
+
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-bg-0">
+      <div className="h-9 shrink-0 border-b border-line-0 flex items-center px-2.5 gap-2">
+        <IconButton
+          title="Run flow"
+          aria-label="Run flow"
+          className={cn("h-6 w-6", run.running && "text-accent")}
+          disabled={run.running || run.steps.length === 0}
+          onClick={rerun}
+        >
+          {run.running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+        </IconButton>
+      </div>
       <SplitPane
         className="flex-1 min-h-0"
         direction="horizontal"

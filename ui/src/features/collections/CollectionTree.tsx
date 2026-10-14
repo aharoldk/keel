@@ -60,6 +60,7 @@ export function CollectionTree() {
   const tree = useKeel((s) => s.tree);
   const activePath = useKeel((s) => s.activePath);
   const openRequest = useKeel((s) => s.openRequest);
+  const sendActive = useKeel((s) => s.sendActive);
   const createRequest = useKeel((s) => s.createRequest);
   const createFolder = useKeel((s) => s.createFolder);
   const renameRequest = useKeel((s) => s.renameRequest);
@@ -672,8 +673,20 @@ export function CollectionTree() {
                   onBlur={() => finishRename(true)}
                 />
               ) : (
-                <span className="truncate">{node.name}</span>
+                <span className="min-w-0 flex-1 truncate">{node.name}</span>
               )}
+              <IconButton
+                title="Run request"
+                aria-label={`Run ${node.name}`}
+                className="h-5 w-5 shrink-0 text-fg-2"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  runRequest(node.path);
+                }}
+              >
+                <Play size={11} />
+              </IconButton>
             </>
           )}
         </div>
@@ -686,6 +699,11 @@ export function CollectionTree() {
     const node = menu?.node;
     setMenu(null);
     if (node) void fn(node);
+  };
+
+  /** Opens the request in a tab and sends it — a single-request run from the list. */
+  const runRequest = (path: string) => {
+    void openRequest(path).then(() => sendActive());
   };
 
   return (
@@ -842,6 +860,7 @@ export function CollectionTree() {
         >
           {menu.node.kind === "request" ? (
             <>
+              <MenuItem label="Run" onClick={() => runMenu((n) => runRequest(n.path))} />
               <MenuItem label="Open" onClick={() => runMenu((n) => openRequest(n.path))} />
               <MenuItem label="Rename" onClick={() => runMenu((n) => startRename(n))} />
               <MenuItem label="Duplicate" onClick={() => runMenu((n) => duplicateRequest(n.path))} />

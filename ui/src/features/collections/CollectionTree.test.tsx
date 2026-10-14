@@ -180,8 +180,39 @@ describe("CollectionTree search", () => {
   });
 });
 
-describe("CollectionTree export", () => {
+describe("CollectionTree run", () => {
   beforeEach(() => {
+    installDefaultResponses();
+    resetStore();
+    useKeel.setState({ tree });
+  });
+
+  it("runs a single request from the row button", async () => {
+    render(<CollectionTree />);
+    fireEvent.click(screen.getByLabelText("Run Get Flow ID"));
+
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "request_read")).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.some(
+          (c) => c[0] === "send_request" && (c[1] as { path: string }).path === "get-flow-id.yaml",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("offers Run on right click", async () => {
+    render(<CollectionTree />);
+    fireEvent.contextMenu(screen.getByText("Get Flow ID"));
+
+    expect(screen.getByText("Run")).toBeTruthy();
+    expect(screen.getByText("Open")).toBeTruthy();
+  });
+});
+
+describe("CollectionTree export", () => {  beforeEach(() => {
     installDefaultResponses();
     resetStore();
     useKeel.setState({ tree });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
-import { FlowPanel } from "./FlowPanel";
+import { FlowPanel, FlowRun } from "./FlowPanel";
 import {
   defaultResponses,
   invokeMock,
@@ -144,6 +144,89 @@ describe("FlowPanel run", () => {
     const run = useKeel.getState().flowRun!;
     expect(run.name).toBe("Release");
     expect(Object.values(run.results)[0]?.status).toBe("ok");
+  });
+});
+
+describe("FlowRun re-run", () => {
+  beforeEach(() => {
+    resetStore();
+    useKeel.setState({
+      workspace: { root: "/w", name: "w", hasGit: false },
+      tree: [
+        { path: "release.yaml", name: "Release", kind: "request", method: "POST" },
+      ],
+      flowRun: {
+        name: "Release",
+        running: false,
+        steps: [
+          { id: "s1", path: "release.yaml", name: "Release", method: "POST", stopOnFailure: true },
+        ],
+        results: {},
+      },
+    });
+  });
+
+  it("re-runs the finished flow from the header button", async () => {
+    install({ send_request: sendResult });
+    render(<FlowRun />);
+    fireEvent.click(screen.getByLabelText("Run flow"));
+
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "send_request")).toBe(true),
+    );
+    await waitFor(() => expect(useKeel.getState().flowRun?.running).toBe(false));
+    const run = useKeel.getState().flowRun!;
+    expect(run.name).toBe("Release");
+    expect(Object.values(run.results)[0]?.status).toBe("ok");
+  });
+
+  it("disables the header run button while a run is in progress", async () => {
+    install({ send_request: sendResult });
+    useKeel.setState({ flowRun: { ...useKeel.getState().flowRun!, running: true } });
+    render(<FlowRun />);
+    expect(screen.getByLabelText("Run flow")).toHaveProperty("disabled", true);
+  });
+});
+
+describe("FlowPanel modal", () => {
+  beforeEach(() => {
+    resetStore();
+    useKeel.setState({
+      workspace: { root: "/w", name: "w", hasGit: false },
+      tree: [{ path: "release.yaml", name: "Release", kind: "request", method: "POST" }],
+    });
+  });
+
+  it("closes the modal after run, save, and delete", async () => {
+    install({ flow_read: releaseFlow, send_request: sendResult, flow_save: "release.yaml" });
+    render(<FlowPanel />);
+    fireEvent.contextMenu(await screen.findByText("Release"));
+    fireEvent.mouseDown(screen.getByText("Edit"));
+
+    expect(await screen.findByText("Edit flow")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "send_request")).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByText("Edit flow")).toBeNull());
+    await waitFor(() => expect(useKeel.getState().flowRun?.running).toBe(false));
+
+    fireEvent.click(await screen.findByText("Release"));
+    await waitFor(() => expect(screen.getByText("Edit flow")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "flow_save")).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByText("Edit flow")).toBeNull());
+
+    fireEvent.click(await screen.findByText("Release"));
+    await waitFor(() => expect(screen.getByText("Edit flow")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.some((c) => c[0] === "flow_delete")).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByText("Edit flow")).toBeNull());
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "name": "keel",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "license": "MIT",
   "description": "Keel — a local-first, Git-native API client (Tauri desktop app)",
   "scripts": {

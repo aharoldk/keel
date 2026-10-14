@@ -63,6 +63,10 @@ cargo add keel-engine
 
 The whole workspace tests with `cargo test --workspace --features keel/cli`.
 
+## Documentation
+
+Guides and format references live in [`docs/`](docs/README.md): [workspace layout](docs/workspace.md), the [YAML format reference](docs/format.md), [variables and environments](docs/variables.md), [scripting](docs/scripts.md), the [tests tab](docs/tests.md), [runs and flows](docs/runs-and-flows.md), the [CLI](docs/cli.md), [import and export](docs/import-export.md), and [using `keel-engine` as a library](docs/using-keel-engine.md).
+
 ## Build
 
 Requires: Rust 1.77+, Node 20+, Tauri 2 system dependencies (Linux: `webkit2gtk-4.1`, `libgtk-3-dev`).

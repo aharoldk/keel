@@ -7,6 +7,7 @@ import { Sidebar } from "@/features/shell/Sidebar";
 import { StatusBar } from "@/features/shell/StatusBar";
 import { ConsolePanel } from "@/features/console/ConsolePanel";
 import { Welcome } from "@/features/onboarding/Welcome";
+import { GettingStarted } from "@/features/onboarding/GettingStarted";
 import { SettingsModal } from "@/features/settings/SettingsModal";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { RequestTabsBar } from "@/features/request/RequestTabsBar";
@@ -93,6 +94,7 @@ export default function App() {
       <StatusBar />
       <SettingsModal />
       <CommandPalette />
+      <GettingStarted />
       <RunnerModal />
       <CodegenModal />
       <ToastHost />

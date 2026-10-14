@@ -338,4 +338,24 @@ describe("store", () => {
       expect(useKeel.getState().activePath).toBe("dirty.yaml");
     });
   });
+
+  describe("getting started", () => {
+    it("opens the tour the first time a workspace is opened", async () => {
+      await useKeel.getState().openWorkspace("/tmp/demo");
+      expect(useKeel.getState().gettingStartedOpen).toBe(true);
+    });
+
+    it("does not reopen the tour once it was completed", async () => {
+      localStorage.setItem("keel.gettingStarted", "done");
+      await useKeel.getState().openWorkspace("/tmp/demo");
+      expect(useKeel.getState().gettingStartedOpen).toBe(false);
+    });
+
+    it("closeGettingStarted persists completion", () => {
+      useKeel.setState({ gettingStartedOpen: true });
+      useKeel.getState().closeGettingStarted();
+      expect(useKeel.getState().gettingStartedOpen).toBe(false);
+      expect(localStorage.getItem("keel.gettingStarted")).toBe("done");
+    });
+  });
 });

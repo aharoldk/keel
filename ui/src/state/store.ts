@@ -101,6 +101,7 @@ interface KeelState {
   splitDirection: "vertical" | "horizontal";
   paletteOpen: boolean;
   settingsOpen: boolean;
+  gettingStartedOpen: boolean;
   consoleOpen: boolean;
   aiOpen: boolean;
   codegenFor: string | null;
@@ -125,6 +126,8 @@ interface KeelState {
   setSplitDirection: (d: "vertical" | "horizontal") => void;
   setPaletteOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  openGettingStarted: () => void;
+  closeGettingStarted: () => void;
   setConsoleOpen: (open: boolean) => void;
   setAiOpen: (open: boolean) => void;
   toast: (message: string, kind?: Toast["kind"]) => void;
@@ -188,6 +191,15 @@ let toastId = 0;
 /** Events received while a run is starting (run id not known yet). */
 let runnerEventBuffer: RunnerEvent[] = [];
 
+/**
+ * Show the getting-started tour once, the first time a workspace is opened.
+ * Completing or skipping the tour records `keel.gettingStarted` in localStorage.
+ */
+function maybeShowGettingStarted() {
+  if (localStorage.getItem("keel.gettingStarted") === "done") return;
+  useKeel.setState({ gettingStartedOpen: true });
+}
+
 function docEquals(a: RequestDoc | null, b: RequestDoc | null): boolean {
   if (!a || !b) return false;
   return JSON.stringify(a) === JSON.stringify(b);
@@ -247,6 +259,7 @@ export const useKeel = create<KeelState>((set, get) => ({
       : "vertical",
   paletteOpen: false,
   settingsOpen: false,
+  gettingStartedOpen: false,
   autoSaveTimer: null,
   consoleOpen: false,
   aiOpen: false,
@@ -281,6 +294,7 @@ export const useKeel = create<KeelState>((set, get) => ({
               set({ activeEnv: savedEnv });
             }
           }
+          maybeShowGettingStarted();
         } catch {
           // last workspace no longer valid — start on welcome screen
         }
@@ -328,6 +342,11 @@ export const useKeel = create<KeelState>((set, get) => ({
   setConsoleOpen: (open) => set({ consoleOpen: open }),
   setAiOpen: (open) => set({ aiOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  openGettingStarted: () => set({ gettingStartedOpen: true }),
+  closeGettingStarted() {
+    localStorage.setItem("keel.gettingStarted", "done");
+    set({ gettingStartedOpen: false });
+  },
 
   toast(message, kind = "info") {
     const id = ++toastId;
@@ -348,6 +367,7 @@ export const useKeel = create<KeelState>((set, get) => ({
     if (savedEnv && get().envs.some((e) => e.fileName === savedEnv)) {
       set({ activeEnv: savedEnv });
     }
+    maybeShowGettingStarted();
     return ws;
   },
 
@@ -359,6 +379,7 @@ export const useKeel = create<KeelState>((set, get) => ({
       await get().saveSettings({ lastWorkspace: path, recentWorkspaces: recent });
       await get().refreshAll();
       get().toast(`Workspace “${ws.name}” created`, "success");
+      maybeShowGettingStarted();
     } catch (e) {
       get().toast(String(e), "error");
     }

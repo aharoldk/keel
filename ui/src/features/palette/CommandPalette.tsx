@@ -88,6 +88,7 @@ export function CommandPalette() {
         },
       },
       { kind: "command", label: "Close workspace", run: () => void g().closeWorkspace() },
+      { kind: "command", label: "Getting started…", run: () => g().openGettingStarted() },
       {
         kind: "command",
         label: "Open workspace folder…",

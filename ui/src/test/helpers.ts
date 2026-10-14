@@ -63,6 +63,7 @@ export function resetStore() {
     sidebarOpen: true,
     paletteOpen: false,
     settingsOpen: false,
+    gettingStartedOpen: false,
     aiOpen: false,
     toasts: [],
     settings: {

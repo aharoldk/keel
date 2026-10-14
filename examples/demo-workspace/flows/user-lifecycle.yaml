@@ -2,9 +2,9 @@ schemaVersion: "1"
 name: User lifecycle
 kind: flow
 steps:
-  - auth/login.yaml
-  - users/create-user.yaml
-  - users/get-user.yaml
-  - users/list-users.yaml
-  - path: users/delete-user.yaml
+  - auth/bearer-token.yaml
+  - rest/create-user.yaml
+  - rest/get-user-by-id.yaml
+  - rest/list-users.yaml
+  - path: rest/delete-user.yaml
     onFailure: continue

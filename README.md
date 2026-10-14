@@ -35,7 +35,7 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 **Collection runs.** Stream one result at a time, pause between requests, stop on the first failure, or jump with `keel.setNextRequest()`.
 
-**Flows.** Save a request sequence as a flow (`flows/*.yaml`), then run it step by step with an optional stop-on-failure per step. Import, duplicate, and delete flows from the sidebar — a duplicate is a new uniquely named file, so nothing is overwritten.
+**Flows.** Save a request sequence as a flow (`flows/*.yaml`), then run it step by step with an optional stop-on-failure per step — from the sidebar row or the flow view, which re-runs when finished. Import, duplicate, and delete flows from the sidebar — a duplicate is a new uniquely named file, so nothing is overwritten.
 
 **Import and export.** Import cURL, OpenAPI 3, and Postman v2.1. Export OpenAPI 3. Generate curl, fetch, axios, Python, HTTPie, Go, Java, and Node.
 
@@ -73,7 +73,7 @@ npm run install:all
 npm run dev
 ```
 
-Then open `examples/demo-workspace`. `auth/login.yaml` is set up to chain into a token.
+Then open `examples/demo-workspace` — auth, REST, GraphQL, gRPC, scripts, and flows examples. The `User lifecycle` flow runs the example requests in order.
 
 ```bash
 npm run build:app            # bundles land in target/release/bundle/

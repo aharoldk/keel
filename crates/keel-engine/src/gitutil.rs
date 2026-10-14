@@ -456,10 +456,17 @@ pub fn set_remote(root: &Path, url: &str) -> Result<(), String> {
     }
 }
 
-/// `git pull --ff-only`. Fast-forward only: a diverged history is reported,
-/// never auto-merged over the collection.
+/// `git pull --ff-only origin <current-branch>`. Fast-forward only: a
+/// diverged history is reported, never auto-merged over the collection.
+/// Naming origin and the branch explicitly keeps this working when the
+/// branch tracks nothing yet — `git pull` alone fails with "no tracking
+/// information" on a branch with no upstream.
 pub fn pull(root: &Path) -> Result<String, String> {
-    git_cli(root, &["pull", "--ff-only"])
+    let repo = open(root)?;
+    repo.find_remote("origin")
+        .map_err(|_| "no remote `origin` — set one first".to_string())?;
+    let branch = current_branch(&repo).ok_or_else(|| "detached HEAD, nothing to pull".to_string())?;
+    git_cli(root, &["pull", "--ff-only", "origin", &branch])
 }
 
 /// `git push -u origin <current-branch>`.

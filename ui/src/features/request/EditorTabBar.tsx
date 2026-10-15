@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/utils";
+import { useOverflowTabs } from "@/components/useOverflowTabs";
 
 export interface EditorTabItem {
   id: string;
@@ -17,13 +18,9 @@ interface EditorTabBarProps {
 }
 
 /**
- * Tab strip for the request editor (Params / Headers / Auth / ...). When the
- * pane is too narrow to fit every tab, the ones that don't fit move into a
- * "..." dropdown so labels are never clipped. The active tab always stays on
- * screen: if it would overflow it takes the slot of the last fitting tab.
- *
- * Tab widths come from an invisible measurement row that mirrors the visible
- * one, so hiding a tab never changes what we measure for the others.
+ * Tab strip for the request editor (Params / Headers / Auth / ...). Tabs that
+ * do not fit move into a "..." dropdown; see `useOverflowTabs` for the
+ * measurement behaviour.
  */
 export default function EditorTabBar({
   tabs,
@@ -31,67 +28,13 @@ export default function EditorTabBar({
   onChange,
   overflowButtonWidth = 36,
 }: EditorTabBarProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const measureRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const { containerRef, measureRefs, isVisible, overflowing } = useOverflowTabs(
+    tabs,
+    active,
+    overflowButtonWidth,
+  );
   const menuRef = useRef<HTMLDivElement>(null);
-  const [visibleCount, setVisibleCount] = useState(tabs.length);
-  const [forcedActive, setForcedActive] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const activeIndex = tabs.findIndex((t) => t.id === active);
-  const overflowing = visibleCount < tabs.length;
-
-  const measure = () => {
-    const container = containerRef.current;
-    if (!container) return;
-    const style = getComputedStyle(container);
-    const avail =
-      container.clientWidth -
-      parseFloat(style.paddingLeft || "0") -
-      parseFloat(style.paddingRight || "0");
-    const widths = measureRefs.current.map((el) => (el ? el.offsetWidth : 0));
-    const total = widths.reduce((a, b) => a + b, 0);
-
-    let count = tabs.length;
-    let forced = false;
-    if (total > avail) {
-      count = 0;
-      let acc = 0;
-      for (let i = 0; i < tabs.length; i++) {
-        if (acc + widths[i] + overflowButtonWidth > avail) break;
-        acc += widths[i];
-        count = i + 1;
-      }
-      if (activeIndex >= count) {
-        forced = true;
-        while (count > 0 && acc + widths[activeIndex] + overflowButtonWidth > avail) {
-          count -= 1;
-          acc -= widths[count];
-        }
-      }
-    }
-
-    setVisibleCount((prev) => (prev === count ? prev : count));
-    setForcedActive((prev) => (prev === forced ? prev : forced));
-  };
-
-  const measureRef = useRef(measure);
-  measureRef.current = measure;
-
-  // Re-measure on every render: badges, the active tab and labels all change
-  // what fits.
-  useLayoutEffect(() => {
-    measureRef.current();
-  });
-
-  // Re-measure when the pane is resized (splitter drag, window resize).
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => measureRef.current());
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
 
   // Close the overflow menu on Escape, blur, or a click outside of it.
   useEffect(() => {
@@ -113,8 +56,6 @@ export default function EditorTabBar({
       window.removeEventListener("blur", onBlur);
     };
   }, [menuOpen]);
-
-  const isVisible = (i: number) => i < visibleCount || (forcedActive && i === activeIndex);
 
   return (
     <div ref={containerRef} className="relative h-8 border-b border-line-0 shrink-0">

@@ -5,14 +5,26 @@ import type { GqlSchema, KV, RequestDoc } from "@/api/types";
 import { Button, TextInput } from "@/components/ui";
 import { cn } from "@/utils";
 import { buildQuery, isScalar, namedType, type BuiltField, typeString } from "./graphql";
+import type { VariableSuggestion } from "./variables";
 
 interface Props {
   doc: RequestDoc;
   setDoc: (d: RequestDoc) => void;
   toast: (msg: string, kind?: "error" | "success" | "info") => void;
+  /** Known `{{variables}}` — used to resolve the endpoint URL for introspection. */
+  variables?: VariableSuggestion[];
 }
 
-export default function QueryBuilder({ doc, setDoc, toast }: Props) {
+/** Substitutes `{{name}}` tags a suggestion knows the value of; unknown
+ *  tags (secrets, prev refs) are left in place. */
+function resolveTemplates(text: string, variables: VariableSuggestion[]): string {
+  return text.replace(/\{\{([^{}]+)\}\}/g, (tag, name: string) => {
+    const hit = variables.find((v) => v.name === name.trim());
+    return hit && hit.value !== undefined ? hit.value : tag;
+  });
+}
+
+export default function QueryBuilder({ doc, setDoc, toast, variables = [] }: Props) {
   const [schema, setSchema] = useState<GqlSchema | null>(null);
   const [loading, setLoading] = useState(false);
   const [operation, setOperation] = useState<"query" | "mutation" | "subscription">(
@@ -31,14 +43,19 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
   const root = schema?.types.find((t) => t.name === rootName);
 
   const load = async () => {
-    const url = doc.request.url.trim();
+    // Introspection is a real HTTP call, so `{{variables}}` in the URL (and
+    // header values) are resolved from the current environment first.
+    const url = resolveTemplates(doc.request.url.trim(), variables);
     if (!url || url.includes("{{")) {
       toast("Set a concrete GraphQL endpoint URL first", "error");
       return;
     }
     setLoading(true);
     try {
-      const next = await api.graphqlIntrospect(url, doc.request.headers ?? []);
+      const headers = (doc.request.headers ?? [])
+        .filter((h) => h.enabled !== false && h.name.trim())
+        .map((h) => ({ ...h, value: resolveTemplates(h.value, variables) }));
+      const next = await api.graphqlIntrospect(url, headers);
       setSchema(next);
       setPicked([]);
       toast("Schema loaded", "success");

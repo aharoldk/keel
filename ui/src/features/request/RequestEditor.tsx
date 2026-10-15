@@ -371,7 +371,12 @@ export default function RequestEditor() {
                     variables={variables}
                     sidePanel={
                       protocol === "graphql" && doc.request.body?.type === "graphql" ? (
-                        <QueryBuilder doc={doc} setDoc={setDoc} toast={toast} />
+                        <QueryBuilder
+                          doc={doc}
+                          setDoc={setDoc}
+                          toast={toast}
+                          variables={variables}
+                        />
                       ) : undefined
                     }
                   />

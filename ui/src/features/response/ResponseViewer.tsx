@@ -18,6 +18,7 @@ import { api } from "@/api/client";
 import { Button, EmptyState, IconButton, Spinner } from "@/components/ui";
 import { cn, formatBytes, formatMs, statusClass } from "@/utils";
 import PreviewPane, { isPreviewable } from "@/features/response/PreviewPane";
+import ResponseTabsBar, { type ResponseTabItem } from "@/features/response/ResponseTabsBar";
 import TimelinePane from "@/features/response/TimelinePane";
 
 type ResponseTabId = "body" | "headers" | "cookies" | "tests" | "preview" | "timeline";
@@ -92,13 +93,24 @@ export default function ResponseViewer(props: {
   const previewable = isPreviewable(result.contentType);
   const activeRespTab: ResponseTabId =
     respTab === "preview" && !previewable ? "body" : respTab;
-  const responseTabs: [ResponseTabId, string][] = [
-    ["body", "Body"],
-    ...(previewable ? [["preview", "Preview"] as [ResponseTabId, string]] : []),
-    ["headers", "Headers"],
-    ["cookies", "Cookies"],
-    ["timeline", "Timeline"],
-    ["tests", "Tests"],
+  const pass = result.testResults.filter((r) => r.passed).length;
+  const total = result.testResults.length;
+  const responseTabs: ResponseTabItem[] = [
+    { id: "body", label: "Body" },
+    ...(previewable ? [{ id: "preview", label: "Preview" }] : []),
+    { id: "headers", label: "Headers" },
+    { id: "cookies", label: "Cookies" },
+    { id: "timeline", label: "Timeline" },
+    {
+      id: "tests",
+      label: "Tests",
+      badge:
+        total > 0 ? (
+          <span className={cn("text-[9px]", pass === total ? "text-ok" : "text-danger")}>
+            {pass}/{total}
+          </span>
+        ) : undefined,
+    },
   ];
 
   const download = async () => {
@@ -176,39 +188,11 @@ export default function ResponseViewer(props: {
           </span>
         )}
 
-        <div className="ml-auto self-stretch flex items-stretch gap-0.5">
-          {responseTabs.map(([id, label]) => {
-            const pass = result.testResults.filter((r) => r.passed).length;
-            const total = result.testResults.length;
-            const badge =
-              id === "tests" && total > 0 ? (
-                <span
-                  className={cn(
-                    "text-[9px]",
-                    pass === total ? "text-ok" : "text-danger",
-                  )}
-                >
-                  {pass}/{total}
-                </span>
-              ) : null;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setRespTab(id)}
-                className={cn(
-                  "text-xs px-2 flex items-center gap-1 border-b-2 -mb-px transition-colors",
-                  activeRespTab === id
-                    ? "border-accent text-fg-0 font-medium"
-                    : "border-transparent text-fg-2 hover:text-fg-0",
-                )}
-              >
-                {label}
-                {badge}
-              </button>
-            );
-          })}
-        </div>
+        <ResponseTabsBar
+          tabs={responseTabs}
+          active={activeRespTab}
+          onChange={(id) => setRespTab(id as ResponseTabId)}
+        />
       </div>
 
       {/* content */}

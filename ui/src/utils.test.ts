@@ -33,7 +33,10 @@ describe("methodVar", () => {
   it("returns css variable per method", () => {
     expect(methodVar("GET")).toBe("var(--method-get)");
     expect(methodVar("POST")).toBe("var(--method-post)");
-    expect(methodVar("graphql")).toBe("var(--method-graphql)");
+    expect(methodVar("GQL")).toBe("var(--method-gql)");
+    expect(methodVar("GRPC")).toBe("var(--method-grpc)");
+    expect(methodVar("WS")).toBe("var(--method-ws)");
+    expect(methodVar("graphql")).toBe("var(--method-gql)");
     expect(methodVar("grpc")).toBe("var(--method-grpc)");
     expect(methodVar("ws")).toBe("var(--method-ws)");
     expect(methodVar("websocket")).toBe("var(--method-ws)");
@@ -41,11 +44,12 @@ describe("methodVar", () => {
 });
 
 describe("requestMethodLabel", () => {
-  it("returns protocol label for graphql, grpc, and websocket", () => {
-    expect(requestMethodLabel("POST", "graphql")).toBe("graphql");
-    expect(requestMethodLabel("GET", "grpc")).toBe("grpc");
-    expect(requestMethodLabel("GET", "websocket")).toBe("ws");
-    expect(requestMethodLabel("GET", "ws")).toBe("ws");
+  it("returns protocol label for graphql, grpc, and websocket in uppercase", () => {
+    expect(requestMethodLabel("POST", "graphql")).toBe("GQL");
+    expect(requestMethodLabel("POST", "gql")).toBe("GQL");
+    expect(requestMethodLabel("GET", "grpc")).toBe("GRPC");
+    expect(requestMethodLabel("GET", "websocket")).toBe("WS");
+    expect(requestMethodLabel("GET", "ws")).toBe("WS");
   });
 
   it("returns http method for http requests or unspecified protocol", () => {

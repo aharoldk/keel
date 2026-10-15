@@ -33,6 +33,7 @@
   --method-head: #a5b4fc;
   --method-options: #d4d4d8;
   --method-trace: #fda4af;
+  --method-gql: #f472b6;
   --method-graphql: #f472b6;
   --method-grpc: #818cf8;
   --method-ws: #fbbf24;
@@ -68,6 +69,7 @@
   --method-head: #4f46e5;
   --method-options: #475569;
   --method-trace: #be123c;
+  --method-gql: #db2777;
   --method-graphql: #db2777;
   --method-grpc: #4338ca;
   --method-ws: #b45309;

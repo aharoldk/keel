@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { GitCompare, Globe2, Plus, Workflow, X } from "lucide-react";
 import { tabIsDirty, tabKey, useKeel, type EditorTab, type Tab } from "@/state/store";
 import { Button, IconButton, Modal, Spinner, TextInput } from "@/components/ui";
-import { cn, methodVar } from "@/utils";
+import { cn, methodVar, requestMethodLabel } from "@/utils";
 
 function TabLabel({ editor, request }: { editor: EditorTab; request?: Tab }) {
   const envs = useKeel((s) => s.envs);
@@ -33,13 +33,25 @@ function TabLabel({ editor, request }: { editor: EditorTab; request?: Tab }) {
     );
   }
   if (!request) return <span className="truncate max-w-40">Untitled</span>;
+  const proto =
+    request.doc.protocol ??
+    (request.doc.graphql || request.doc.request.body?.type === "graphql"
+      ? "graphql"
+      : request.doc.grpc
+        ? "grpc"
+        : request.doc.websocket ||
+            request.doc.request.url.startsWith("ws://") ||
+            request.doc.request.url.startsWith("wss://")
+          ? "ws"
+          : undefined);
+  const label = requestMethodLabel(request.doc.request.method, proto);
   return (
     <>
       <span
         className="font-mono text-[9px] font-bold"
-        style={{ color: methodVar(request.doc.request.method) }}
+        style={{ color: methodVar(label) }}
       >
-        {request.doc.request.method}
+        {label}
       </span>
       <span className="truncate max-w-40">{request.doc.name || "Untitled"}</span>
       {request.loading ? (

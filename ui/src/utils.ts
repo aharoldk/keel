@@ -35,6 +35,7 @@ export function statusClass(status: number | null): string {
 export function methodVar(method: string): string {
   const m = method.toLowerCase();
   if (m === "websocket") return "var(--method-ws)";
+  if (m === "graphql") return "var(--method-gql)";
   return `var(--method-${m})`;
 }
 
@@ -43,9 +44,9 @@ export function requestMethodLabel(
   protocol?: string,
 ): string {
   const p = protocol?.toLowerCase();
-  if (p === "graphql") return "graphql";
-  if (p === "grpc") return "grpc";
-  if (p === "websocket" || p === "ws") return "ws";
+  if (p === "graphql" || p === "gql") return "GQL";
+  if (p === "grpc") return "GRPC";
+  if (p === "websocket" || p === "ws") return "WS";
   return method ?? "GET";
 }
 

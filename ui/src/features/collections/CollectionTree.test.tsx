@@ -171,6 +171,30 @@ describe("CollectionTree search", () => {
     expect(screen.queryByText("users")).toBeNull();
   });
 
+  it("filters by protocol name", () => {
+    useKeel.setState({
+      tree: [
+        {
+          path: "graphql/introspect.yaml",
+          name: "Introspect",
+          kind: "request",
+          method: "POST",
+          protocol: "graphql",
+        },
+        {
+          path: "rest/list.yaml",
+          name: "List users",
+          kind: "request",
+          method: "GET",
+        },
+      ],
+    });
+    render(<CollectionTree />);
+    fireEvent.change(screen.getByLabelText("Search requests"), { target: { value: "graphql" } });
+    expect(screen.getByText("Introspect")).toBeTruthy();
+    expect(screen.queryByText("List users")).toBeNull();
+  });
+
   it("matches a URL and shows no matches when nothing hits", () => {
     render(<CollectionTree />);
     fireEvent.change(screen.getByLabelText("Search requests"), { target: { value: "/users" } });
@@ -242,5 +266,56 @@ describe("CollectionTree export", () => {  beforeEach(() => {
       defaultPath: "collection.json",
       filters: [{ name: "OpenAPI (JSON)", extensions: ["json"] }],
     });
+  });
+});
+
+describe("CollectionTree method badges", () => {
+  it("renders protocol badges for graphql, grpc, ws, and http methods", () => {
+    installDefaultResponses();
+    resetStore();
+    useKeel.setState({
+      tree: [
+        {
+          path: "graphql/introspect.yaml",
+          name: "Introspect",
+          kind: "request",
+          method: "POST",
+          protocol: "graphql",
+        },
+        {
+          path: "grpc/user.yaml",
+          name: "GetUser",
+          kind: "request",
+          method: "GET",
+          protocol: "grpc",
+        },
+        {
+          path: "ws/chat.yaml",
+          name: "ChatSocket",
+          kind: "request",
+          method: "GET",
+          protocol: "websocket",
+        },
+        {
+          path: "rest/create.yaml",
+          name: "CreateUser",
+          kind: "request",
+          method: "POST",
+          protocol: "http",
+        },
+        {
+          path: "rest/get.yaml",
+          name: "GetUserRest",
+          kind: "request",
+          method: "GET",
+        },
+      ],
+    });
+    render(<CollectionTree />);
+    expect(screen.getByText("GQL")).toBeTruthy();
+    expect(screen.getByText("GRPC")).toBeTruthy();
+    expect(screen.getByText("WS")).toBeTruthy();
+    expect(screen.getByText("POST")).toBeTruthy();
+    expect(screen.getByText("GET")).toBeTruthy();
   });
 });

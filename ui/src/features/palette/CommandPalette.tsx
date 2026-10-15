@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { HttpMethod, ShortcutAction, TreeNode } from "@/api/types";
 import { runCommand } from "@/commands";
 import { comboFor, formatCombo, SHORTCUT_DEFS } from "@/shortcuts";
-import { cn, fuzzyScore, methodVar } from "@/utils";
+import { cn, fuzzyScore, methodVar, requestMethodLabel } from "@/utils";
 import { useKeel } from "@/state/store";
 
 interface RequestItem {
@@ -11,6 +11,7 @@ interface RequestItem {
   label: string;
   hint: string;
   method?: HttpMethod;
+  protocol?: string;
   path: string;
 }
 
@@ -60,6 +61,7 @@ export function CommandPalette() {
         label: n.name,
         hint: n.path,
         method: n.method,
+        protocol: n.protocol,
         path: n.path,
       })),
     [tree],
@@ -116,7 +118,10 @@ export function CommandPalette() {
 
   const requestMatches = useMemo(() => {
     const scored = requests
-      .map((r) => ({ r, score: fuzzyScore(q, `${r.label} ${r.path}`) }))
+      .map((r) => ({
+        r,
+        score: fuzzyScore(q, `${r.label} ${r.path} ${r.protocol ?? ""} ${r.method ?? ""}`),
+      }))
       .filter((x) => x.score >= 0);
     scored.sort((a, b) => b.score - a.score);
     return scored.map((x) => x.r);
@@ -168,30 +173,33 @@ export function CommandPalette() {
     }
   };
 
-  const requestRow = (r: RequestItem, idx: number) => (
-    <button
-      key={r.path}
-      type="button"
-      data-idx={idx}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        runItem(r);
-      }}
-      className={cn(
-        "w-full h-8 px-3 flex items-center gap-2.5 text-left",
-        idx === active ? "bg-accent-soft" : "hover:bg-bg-hover",
-      )}
-    >
-      <span
-        className="w-10 shrink-0 text-center font-mono text-[10px] font-bold"
-        style={{ color: methodVar(r.method ?? "GET") }}
+  const requestRow = (r: RequestItem, idx: number) => {
+    const label = requestMethodLabel(r.method, r.protocol);
+    return (
+      <button
+        key={r.path}
+        type="button"
+        data-idx={idx}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          runItem(r);
+        }}
+        className={cn(
+          "w-full h-8 px-3 flex items-center gap-2.5 text-left",
+          idx === active ? "bg-accent-soft" : "hover:bg-bg-hover",
+        )}
       >
-        {r.method}
-      </span>
-      <span className="text-xs text-fg-0 truncate">{r.label}</span>
-      <span className="ml-auto shrink-0 max-w-[50%] truncate text-[10px] text-fg-2">{r.hint}</span>
-    </button>
-  );
+        <span
+          className="w-10 shrink-0 text-center font-mono text-[10px] font-bold"
+          style={{ color: methodVar(label) }}
+        >
+          {label}
+        </span>
+        <span className="text-xs text-fg-0 truncate">{r.label}</span>
+        <span className="ml-auto shrink-0 max-w-[50%] truncate text-[10px] text-fg-2">{r.hint}</span>
+      </button>
+    );
+  };
 
   const commandRow = (c: CommandItem, idx: number) => (
     <button

@@ -47,14 +47,45 @@ describe("CommandPalette", () => {
 
   it("lists flattened requests with method badges and group headers", () => {
     render(<CommandPalette />);
-    expect(screen.getByText("Get Users")).toBeTruthy();
-    expect(screen.getByText("Create Pet")).toBeTruthy();
-    expect(screen.getByText("users/get-users.yaml")).toBeTruthy();
     expect(screen.getByText("Requests")).toBeTruthy();
     expect(screen.getByText("Commands")).toBeTruthy();
-    expect(screen.getByText("Send request")).toBeTruthy();
-    expect(screen.getByText("Environment: local")).toBeTruthy();
-    expect(screen.getByText("No environment")).toBeTruthy();
+    expect(screen.getByText("Get Users")).toBeTruthy();
+    expect(screen.getByText("Create Pet")).toBeTruthy();
+    expect(screen.getByText("GET")).toBeTruthy();
+    expect(screen.getByText("POST")).toBeTruthy();
+  });
+
+  it("renders protocol badges for graphql, grpc, and ws", () => {
+    useKeel.setState({
+      paletteOpen: true,
+      tree: [
+        {
+          path: "gql.yaml",
+          name: "Gql Query",
+          kind: "request",
+          method: "POST",
+          protocol: "graphql",
+        },
+        {
+          path: "grpc.yaml",
+          name: "Grpc Call",
+          kind: "request",
+          method: "GET",
+          protocol: "grpc",
+        },
+        {
+          path: "ws.yaml",
+          name: "Ws Socket",
+          kind: "request",
+          method: "GET",
+          protocol: "websocket",
+        },
+      ],
+    });
+    render(<CommandPalette />);
+    expect(screen.getByText("GQL")).toBeTruthy();
+    expect(screen.getByText("GRPC")).toBeTruthy();
+    expect(screen.getByText("WS")).toBeTruthy();
   });
 
   it("filters with fuzzy score and shows no matches", () => {

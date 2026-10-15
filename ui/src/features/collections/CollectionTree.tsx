@@ -21,18 +21,25 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "@/api/client";
 import type { HttpMethod, TreeNode } from "@/api/types";
 import { Button, EmptyState, IconButton, Modal, Select, TextInput } from "@/components/ui";
-import { cn, methodVar } from "@/utils";
+import { cn, methodVar, requestMethodLabel } from "@/utils";
 import { useKeel } from "@/state/store";
 import { CollectionSettingsModal } from "./CollectionSettingsModal";
 import { FolderSettingsModal } from "./FolderSettingsModal";
 
-function MethodBadge({ method }: { method?: HttpMethod }) {
+function MethodBadge({
+  method,
+  protocol,
+}: {
+  method?: HttpMethod;
+  protocol?: string;
+}) {
+  const label = requestMethodLabel(method, protocol);
   return (
     <span
       className="w-10 shrink-0 text-center font-mono text-[10px] font-bold"
-      style={{ color: methodVar(method ?? "GET") }}
+      style={{ color: methodVar(label) }}
     >
-      {method}
+      {label}
     </span>
   );
 }
@@ -127,7 +134,7 @@ export function CollectionTree() {
   const requestMatches = useCallback(
     (node: TreeNode) => {
       if (!filter) return true;
-      const haystack = `${node.name} ${node.path} ${node.method ?? ""} ${node.url ?? ""}`.toLowerCase();
+      const haystack = `${node.name} ${node.path} ${node.protocol ?? ""} ${node.method ?? ""} ${node.url ?? ""}`.toLowerCase();
       return filter.split(/\s+/).every((term) => haystack.includes(term));
     },
     [filter],
@@ -656,7 +663,7 @@ export function CollectionTree() {
           ) : (
             <>
               <span className="w-1 shrink-0" />
-              <MethodBadge method={node.method} />
+              <MethodBadge method={node.method} protocol={node.protocol} />
               {renaming?.path === node.path ? (
                 <input
                   autoFocus

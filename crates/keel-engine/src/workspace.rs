@@ -328,7 +328,7 @@ fn request_node(root: &Path, path: &Path) -> Option<TreeNodeDto> {
     let doc: RequestDoc = yaml_to(&text).ok()?;
     let protocol = if let Some(p) = doc.protocol.as_deref() {
         match p.to_ascii_lowercase().as_str() {
-            "graphql" => Some("graphql".to_string()),
+            "graphql" | "gql" => Some("graphql".to_string()),
             "grpc" => Some("grpc".to_string()),
             "websocket" | "ws" => Some("websocket".to_string()),
             _ => Some(p.to_string()),

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -17,6 +17,7 @@ import type { SendResult } from "@/api/types";
 import { api } from "@/api/client";
 import { Button, EmptyState, IconButton, Spinner } from "@/components/ui";
 import { cn, formatBytes, formatMs, statusClass } from "@/utils";
+import LineList from "@/features/response/LineList";
 import PreviewPane, { isPreviewable } from "@/features/response/PreviewPane";
 import ResponseTabsBar, { type ResponseTabItem } from "@/features/response/ResponseTabsBar";
 import TimelinePane from "@/features/response/TimelinePane";
@@ -324,20 +325,24 @@ function BodyPane({
   onDownload: () => void;
 }) {
   const bodyText = result.bodyText;
+  const isText = bodyText != null;
 
-  let parsedJson: string | null = null;
-  if (bodyText != null && bodyText.trim() !== "") {
+  // Parsing and re-splitting a multi-MB body on every render is wasted work —
+  // only recompute when the body or the pretty toggle actually changes.
+  const { text, showJson } = useMemo(() => {
+    if (bodyText == null || bodyText.trim() === "") {
+      return { text: bodyText ?? "", showJson: false };
+    }
+    let parsedJson: string | null = null;
     try {
       parsedJson = JSON.stringify(JSON.parse(bodyText), null, 2);
     } catch {
       parsedJson = null;
     }
-  }
-
-  const showJson = pretty && parsedJson != null;
-  const isText = bodyText != null;
-  const text = showJson ? (parsedJson ?? "") : (bodyText ?? "");
-  const lines = text.split("\n");
+    const showJson = pretty && parsedJson != null;
+    return { text: showJson ? (parsedJson ?? "") : (bodyText ?? ""), showJson };
+  }, [bodyText, pretty]);
+  const lines = useMemo(() => text.split("\n"), [text]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -373,20 +378,12 @@ function BodyPane({
       </div>
 
       {isText ? (
-        <div className="flex-1 min-h-0 overflow-auto bg-bg-1 font-mono text-xs leading-6 select-text">
-          {lines.map((line, i) => (
-            <div key={i} className="flex">
-              {pretty && (
-                <span className="sticky left-0 w-10 shrink-0 bg-bg-1 pr-3 text-right text-fg-2 select-none">
-                  {i + 1}
-                </span>
-              )}
-              <span className="whitespace-pre-wrap break-all pr-3 text-fg-0">
-                {showJson ? <JsonLine line={line} /> : line || " "}
-              </span>
-            </div>
-          ))}
-        </div>
+        <LineList
+          lines={lines}
+          gutter={pretty}
+          renderLine={(line) => (showJson ? <JsonLine line={line} /> : line || " ")}
+          className="flex-1 bg-bg-1"
+        />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2">
           <div className="text-xs text-fg-2">

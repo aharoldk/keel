@@ -1,7 +1,10 @@
 schemaVersion: '1'
 name: Many response headers
 kind: request
-description: Server returns a long list of response headers — check the scroll in the Headers tab.
+description: Returns 40 x-mock-header-* response headers (up to 200) — check the scroll in the Headers tab.
 request:
   method: GET
   url: '{{baseUrl}}/api/many-headers'
+  params:
+  - name: count
+    value: '40'

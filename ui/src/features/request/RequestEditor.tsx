@@ -528,7 +528,7 @@ function BodyTab({
         </Select>
         {body.type === "json" && (
           <Button variant="ghost" className="h-7" onClick={formatJson}>
-            Format
+            Beautify
           </Button>
         )}
         {body.type === "graphql" && (

@@ -41,7 +41,7 @@ fn demo_workspace_is_valid() {
         "rest/echo-urlencoded-body.yaml",
         "graphql/query-user-by-id-variables.yaml",
         "graphql/mutation-create-user.yaml",
-        "grpc/introspect-schema.yaml",
+        "graphql/introspect-schema.yaml",
         "graphql/query-raw-json-envelope.yaml",
         "grpc/getuser.yaml",
         "scripts/pre-request-test-scripts.yaml",

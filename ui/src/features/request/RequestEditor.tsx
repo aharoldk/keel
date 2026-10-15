@@ -543,7 +543,7 @@ function BodyTab({
           {(body.type === "json" || body.type === "text" || body.type === "xml") && (
             <div className="flex-1 min-h-0 flex flex-col bg-bg-1">
               <div className="shrink-0 px-2 pt-1 text-[10px] font-mono text-fg-2">
-                {"#{body.accessToken} · #{header.X-Trace} · #{status} — from the previous response"}
+                {"#{body.accessToken} · #{header.X-Trace} · #{status} — from the previous response when used in a flow"}
               </div>
               <div className="flex-1 min-h-0">
                 <CodeEditor

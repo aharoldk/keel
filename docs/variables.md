@@ -62,14 +62,21 @@ Inside a run, a request can read the response sent before it with `#{...}` tags.
 
 ```yaml
 request:
-  method: GET
+  method: POST
   url: "{{baseUrl}}/api/users/#{body.id}"
   headers:
     - name: Authorization
       value: "Bearer #{body.accessToken}"
+  body:
+    type: json
+    content: |
+      {
+        "token": "#{body.accessToken}"
+      }
 ```
 
 Rules:
 
 - Previous-response values are memory-only. They are replaced at send time and never written to disk.
 - A tag that cannot be resolved (no previous response, missing path, non-JSON body with a path) is left exactly as written and reported as missing.
+- In JSON request bodies, wrap tags in quotes (e.g. `"#{body.accessToken}"`) so the body remains valid JSON.

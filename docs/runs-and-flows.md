@@ -11,7 +11,7 @@ Behavior:
 - **Bail** (`--bail` in the CLI): stop at the first failed or errored request.
 - **Delay** (`--delay MS`): wait between requests.
 - A request passes when its tests all pass and the status is below 400; it fails when a test fails or the status is 4xx/5xx; it errors on a transport failure; scripts can mark it skipped.
-- The previous response is kept in memory, so `#{body.token}` chaining works across a run.
+- The previous response is kept in memory, so `#{body.token}` chaining works across a run (in JSON bodies, wrap tags in quotes like `"#{body.token}"`).
 
 Scripts control the run order:
 
@@ -48,6 +48,7 @@ steps:
 ```
 
 - Steps are workspace-relative request paths, run in order.
+- Requests in a flow can chain off previous responses using `#{body.path}`, `#{header.Name}`, and `#{status}`. In JSON bodies, wrap tags in quotes (e.g. `"#{body.accessToken}"`).
 - A bare path string stops the flow if the request fails. `onFailure: continue` runs the next step anyway; anything other than `continue` stops.
 - Run a flow from the sidebar row or the flow view. The flow view re-runs when finished.
 - Import, duplicate and delete flows from the sidebar. A duplicate is a new uniquely named file, so nothing is overwritten.

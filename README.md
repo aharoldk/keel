@@ -31,7 +31,7 @@ Open a folder. Each request is one YAML file. Edit it, send it, write a test, co
 
 **Scripts.** Pre-request and post-response scripts expose `keel`, `req`, and `res`, plus `test()` and a chai-style `expect()`. The Tests tab is separate: one assertion per row, not code.
 
-**Chaining.** Read previous response with `#{body.accessToken}`, `#{header.X-Trace}`, `#{status}` in URLs, headers, or body (memory-only, replaced at send time).
+**Chaining.** Read previous response with `#{body.accessToken}`, `#{header.X-Trace}`, `#{status}` in URLs, headers, or body (`"#{body.accessToken}"`, memory-only, replaced at send time).
 
 **Collection runs.** Stream one result at a time, pause between requests, stop on the first failure, or jump with `keel.setNextRequest()`.
 

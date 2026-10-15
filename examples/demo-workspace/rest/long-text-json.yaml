@@ -1,0 +1,12 @@
+schemaVersion: '1'
+name: Long text JSON
+kind: request
+description: Returns a JSON body with long text fields and paragraphs — check soft wrap on syntax-highlighted JSON strings.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/long-text-json'
+  params:
+  - name: paragraphs
+    value: '20'
+  - name: words
+    value: '50'

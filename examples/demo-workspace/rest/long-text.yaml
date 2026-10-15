@@ -1,0 +1,12 @@
+schemaVersion: '1'
+name: Long text
+kind: request
+description: Returns long plain text lines — check soft wrap and horizontal scrolling in the response view.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/long-text'
+  params:
+  - name: lines
+    value: '50'
+  - name: words
+    value: '40'

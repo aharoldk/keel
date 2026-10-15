@@ -10,7 +10,7 @@ request:
     value: application/json
   body:
     type: graphql
-    query: |-
+    query: |
       query GetUser($id: ID!) {
         user(id: $id) {
           id
@@ -19,7 +19,10 @@ request:
           age
           active
           tags
-          address { city country }
+          address {
+            city
+            country
+          }
         }
       }
     variables: |-

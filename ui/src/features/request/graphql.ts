@@ -122,3 +122,103 @@ function render(
       .join("\n") + "\n"
   );
 }
+
+/**
+ * Pretty-prints a GraphQL document: selection-set braces open a new indented
+ * line and fields land one per line, while strings (including `"""…"""` block
+ * strings) and `#` comments are copied verbatim so braces inside them never
+ * affect indentation. Operation headers (`query GetUser($id: ID!) {`) stay on
+ * one line, as do type conditions (`… on User`).
+ */
+export function formatGraphql(text: string): string {
+  const lines: { text: string; depth: number }[] = [];
+  let buf = "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let nextField = false;
+
+  const flush = () => {
+    const trimmed = buf.trim();
+    if (trimmed) lines.push({ text: trimmed, depth });
+    buf = "";
+  };
+  const isNameChar = (c: string) => /[_0-9A-Za-z]/.test(c);
+  const nextToken = (from: number): string => {
+    let j = from;
+    while (j < text.length && /\s/.test(text[j])) j += 1;
+    return text[j] ?? "";
+  };
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      buf += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (text.startsWith('"""', i)) {
+      const end = text.indexOf('"""', i + 3);
+      const stop = end === -1 ? text.length : end + 3;
+      buf += text.slice(i, stop);
+      i = stop - 1;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      buf += ch;
+      continue;
+    }
+    if (ch === "#") {
+      flush();
+      let comment = "#";
+      while (i + 1 < text.length && text[i + 1] !== "\n") {
+        comment += text[i + 1];
+        i += 1;
+      }
+      lines.push({ text: comment.trimEnd(), depth });
+      continue;
+    }
+    if (ch === "{") {
+      buf += ch;
+      flush();
+      depth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      flush();
+      depth = Math.max(0, depth - 1);
+      buf = "}";
+      flush();
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (buf.length > 0 && !buf.endsWith(" ") && !nextField) buf += " ";
+      continue;
+    }
+    if (isNameChar(ch)) {
+      if (nextField) {
+        flush();
+        nextField = false;
+      }
+      let name = ch;
+      while (i + 1 < text.length && isNameChar(text[i + 1])) {
+        i += 1;
+        name += text[i];
+      }
+      buf += name;
+      // Two names back to back inside a selection set are separate fields —
+      // except after `on`, which prefixes a type condition.
+      if (depth >= 1 && name !== "on" && isNameChar(nextToken(i + 1))) nextField = true;
+      continue;
+    }
+    buf += ch;
+  }
+  flush();
+
+  return (
+    lines.map((l) => "  ".repeat(l.depth) + l.text).join("\n") + (lines.length ? "\n" : "")
+  );
+}

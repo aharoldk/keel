@@ -31,7 +31,7 @@ import { useKeel } from "@/state/store";
 import { useEditContextMenu } from "@/components/EditContextMenu";
 import type { VariableSuggestion } from "./variables";
 
-export type CodeLanguage = "json" | "yaml" | "javascript" | "graphql" | "text";
+export type CodeLanguage = "json" | "yaml" | "javascript" | "graphql" | "proto" | "text";
 
 interface CodeEditorProps {
   value: string;
@@ -230,6 +230,100 @@ const graphqlMode = StreamLanguage.define<{ blockString: boolean }>({
   },
 });
 
+const PROTO_KEYWORDS = new Set([
+  "syntax",
+  "package",
+  "import",
+  "option",
+  "message",
+  "enum",
+  "service",
+  "rpc",
+  "returns",
+  "stream",
+  "repeated",
+  "optional",
+  "required",
+  "reserved",
+  "oneof",
+  "map",
+  "extend",
+  "extensions",
+  "public",
+  "weak",
+  "to",
+  "max",
+]);
+
+const PROTO_TYPES = new Set([
+  "double",
+  "float",
+  "int32",
+  "int64",
+  "uint32",
+  "uint64",
+  "sint32",
+  "sint64",
+  "fixed32",
+  "fixed64",
+  "sfixed32",
+  "sfixed64",
+  "bool",
+  "string",
+  "bytes",
+]);
+
+/** Lexer for proto3 files — keywords, scalar types, comments, strings, numbers. */
+const protoMode = StreamLanguage.define<{ block: boolean }>({
+  name: "proto",
+  languageData: { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } },
+  startState: () => ({ block: false }),
+  token(stream, state) {
+    if (state.block) {
+      if (stream.match("*/")) state.block = false;
+      else stream.next();
+      return "comment";
+    }
+    if (stream.eatSpace()) return null;
+    if (stream.eol()) return null;
+    if (stream.match("//")) {
+      stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.match("/*")) {
+      state.block = true;
+      return "comment";
+    }
+    if (stream.eat('"') || stream.eat("'")) {
+      const quote = stream.current();
+      while (!stream.eol()) {
+        if (stream.eat("\\")) {
+          stream.next();
+          continue;
+        }
+        if (stream.eat(quote)) break;
+        stream.next();
+      }
+      return "string";
+    }
+    if (/[0-9]/.test(stream.peek() ?? "") || /[-+]/.test(stream.peek() ?? "")) {
+      stream.eat(/[-+]/);
+      stream.eatWhile(/[0-9a-fA-FxX_.]/);
+      return "number";
+    }
+    if (/[_A-Za-z]/.test(stream.peek() ?? "")) {
+      stream.next();
+      stream.eatWhile(/[_0-9A-Za-z.]/);
+      const word = stream.current();
+      if (PROTO_KEYWORDS.has(word)) return "keyword";
+      if (PROTO_TYPES.has(word)) return "atom";
+      return "propertyName";
+    }
+    stream.next();
+    return "punctuation";
+  },
+});
+
 /** Colors GraphQL `$variables` with the amber value accent. */
 function highlightGqlVariables(): ViewPlugin<{ decorations: DecorationSet }> {
   const make = (text: string) => {
@@ -311,6 +405,7 @@ function makeTheme(dark: boolean, fontSize: number): Extension {
       ".cm-scroller": {
         fontFamily: "var(--mono)",
         lineHeight: "1.5",
+        overflowY: "auto",
       },
       ".cm-gutters": {
         backgroundColor: "transparent",
@@ -476,6 +571,7 @@ function makePlainTheme(dark: boolean, fontSize: number): Extension {
       ".cm-scroller": {
         fontFamily: "var(--mono)",
         lineHeight: "1.6",
+        overflowY: "auto",
       },
       ".cm-gutters": {
         backgroundColor: "transparent",
@@ -629,6 +725,7 @@ export default function CodeEditor({
     else if (language === "yaml") exts.push(yaml());
     else if (language === "javascript") exts.push(javascript());
     else if (language === "graphql") exts.push(graphqlMode, highlightGqlVariables());
+    else if (language === "proto") exts.push(protoMode);
     if (placeholder && !readOnly) exts.push(cmPlaceholder(placeholder));
     return exts;
   }, [language, theme, fontSize, placeholder, readOnly, appearance, variables]);
@@ -637,12 +734,13 @@ export default function CodeEditor({
     <div
       className={
         appearance === "editor"
-          ? "h-full min-h-0"
+          ? "h-full min-h-0 flex flex-col"
           : "rounded border border-line-0 bg-bg-2 focus-within:border-line-focus transition-colors"
       }
       onContextMenu={onContextMenu}
     >
       <CodeMirror
+        className={appearance === "editor" ? "flex-1 min-h-0" : undefined}
         value={value}
         height={height}
         theme="none"

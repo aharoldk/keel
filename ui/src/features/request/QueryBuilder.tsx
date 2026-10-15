@@ -68,8 +68,8 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-2 p-2 border-t border-line-0">
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2 p-2 min-h-0">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold text-fg-1">Query builder</span>
         <select
           className="h-7 text-xs rounded border border-line-0 bg-bg-1 px-1"
@@ -81,7 +81,7 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
           <option value="subscription">subscription</option>
         </select>
         <TextInput
-          className="h-7 w-28 shrink-0 font-mono"
+          className="h-7 w-24 shrink-0 font-mono"
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -94,43 +94,53 @@ export default function QueryBuilder({ doc, setDoc, toast }: Props) {
         </Button>
       </div>
       {schema && root && (
-        <div className="grid grid-cols-2 gap-2 min-h-40">
-          <div className="border border-line-0 rounded overflow-y-auto max-h-64 p-1">
-            {root.fields.map((field) => (
-              <button
-                key={field.name}
-                type="button"
-                className="w-full text-left text-xs px-1.5 py-1 rounded hover:bg-bg-hover flex items-center gap-1"
-                onClick={() =>
-                  setPicked((cur) =>
-                    cur.some((f) => f.name === field.name)
-                      ? cur
-                      : [...cur, { name: field.name, args: [], children: [] }],
-                  )
-                }
-              >
-                <Plus size={11} />
-                <span className="font-mono">{field.name}</span>
-                <span className="text-fg-2 ml-auto">{typeString(field.type)}</span>
-              </button>
-            ))}
+        <div className="flex flex-col gap-2 min-h-0">
+          <div className="flex flex-col gap-1 min-h-0">
+            <div className="text-[10px] font-semibold text-fg-2 uppercase tracking-wide">
+              Schema fields
+            </div>
+            <div className="border border-line-0 rounded overflow-y-auto max-h-64 p-1">
+              {root.fields.map((field) => (
+                <button
+                  key={field.name}
+                  type="button"
+                  className="w-full text-left text-xs px-1.5 py-1 rounded hover:bg-bg-hover flex items-center gap-1"
+                  onClick={() =>
+                    setPicked((cur) =>
+                      cur.some((f) => f.name === field.name)
+                        ? cur
+                        : [...cur, { name: field.name, args: [], children: [] }],
+                    )
+                  }
+                >
+                  <Plus size={11} />
+                  <span className="font-mono truncate">{field.name}</span>
+                  <span className="text-fg-2 ml-auto shrink-0">{typeString(field.type)}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="border border-line-0 rounded overflow-y-auto max-h-64 p-1">
-            {picked.length === 0 && (
-              <div className="text-xs text-fg-2 p-1">Pick fields from the schema.</div>
-            )}
-            {picked.map((field, i) => (
-              <FieldNode
-                key={field.name}
-                schema={schema}
-                parentType={root.name}
-                field={field}
-                onChange={(next) =>
-                  setPicked((cur) => cur.map((f, idx) => (idx === i ? next : f)))
-                }
-                onRemove={() => setPicked((cur) => cur.filter((_, idx) => idx !== i))}
-              />
-            ))}
+          <div className="flex flex-col gap-1 min-h-0">
+            <div className="text-[10px] font-semibold text-fg-2 uppercase tracking-wide">
+              Selection
+            </div>
+            <div className="border border-line-0 rounded overflow-y-auto max-h-64 p-1">
+              {picked.length === 0 && (
+                <div className="text-xs text-fg-2 p-1">Pick fields from the schema.</div>
+              )}
+              {picked.map((field, i) => (
+                <FieldNode
+                  key={field.name}
+                  schema={schema}
+                  parentType={root.name}
+                  field={field}
+                  onChange={(next) =>
+                    setPicked((cur) => cur.map((f, idx) => (idx === i ? next : f)))
+                  }
+                  onRemove={() => setPicked((cur) => cur.filter((_, idx) => idx !== i))}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}

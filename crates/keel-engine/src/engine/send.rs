@@ -304,6 +304,19 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
     };
 
     // ---------- pre-request scripts ----------
+    // The script state is seeded with the resolved request so `req.get*()`
+    // works. `body_seed` is kept to tell a body the script actually set apart
+    // from this seeded preview.
+    let body_seed = match body_preview(&doc) {
+        Ok(s) => s,
+        Err(e) => {
+            return finish_error(
+                &doc,
+                &template_url, &env_label, &request_path, &e,
+                logs, None, stats, timeline,
+            )
+        }
+    };
     let pre_req_state = ReqState {
         method: doc.request.method,
         url: resolve_template(&scopes, &doc.request.url, &mut stats),
@@ -311,16 +324,7 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
             .into_iter()
             .map(|kv| (kv.name, resolve_template(&scopes, &kv.value, &mut stats)))
             .collect(),
-        body: match body_preview(&doc) {
-            Ok(s) => s,
-            Err(e) => {
-                return finish_error(
-                    &doc,
-                    &template_url, &env_label, &request_path, &e,
-                    logs, None, stats, timeline,
-                )
-            }
-        },
+        body: body_seed.clone(),
     };
     {
         let pre_cell = std::rc::Rc::new(std::cell::RefCell::new(Host::new_pre(
@@ -413,12 +417,18 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
                 .collect();
             doc.request.url = final_url;
             doc.request.headers = Some(final_headers);
-            if let Some(body) = script_body {
-                doc.request.body = Some(crate::model::Body {
-                    body_type: detect_text_body_type(&doc.request.body),
-                    content: Some(body),
-                    ..Default::default()
-                });
+            if script_body != body_seed {
+                // Only a body the script actually set may replace the doc's
+                // body. The seeded preview (for GraphQL, the raw query text)
+                // must not clobber the structured body — `build_body` turns
+                // `query` + `variables` into the real JSON payload.
+                if let Some(body) = script_body {
+                    doc.request.body = Some(crate::model::Body {
+                        body_type: detect_text_body_type(&doc.request.body),
+                        content: Some(body),
+                        ..Default::default()
+                    });
+                }
             }
         }
 
@@ -1305,6 +1315,126 @@ mod tests {
 
         assert!(out.result.error.is_some());
         assert_eq!(transient.get("token").map(String::as_str), Some("tok-1"));
+    }
+
+    /// Spins up a one-shot HTTP server that records the request body and
+    /// replies `200 {}`.
+    async fn body_capture_server() -> (String, std::sync::Arc<std::sync::Mutex<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let seen2 = seen.clone();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = vec![0u8; 16384];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            *seen2.lock().expect("lock") = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = sock
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
+                .await;
+        });
+        (format!("http://127.0.0.1:{port}/graphql"), seen)
+    }
+
+    fn graphql_doc(url: &str, query: &str, variables: Option<&str>) -> RequestDoc {
+        RequestDoc {
+            schema_version: SCHEMA_VERSION.into(),
+            name: "t".into(),
+            kind: "request".into(),
+            description: None,
+            protocol: Some("graphql".into()),
+            graphql: None,
+            websocket: None,
+            grpc: None,
+            request: RequestBlock {
+                url: url.into(),
+                method: crate::model::HttpMethod::POST,
+                body: Some(crate::model::Body {
+                    body_type: BodyType::Graphql,
+                    content: None,
+                    items: None,
+                    path: None,
+                    query: Some(query.into()),
+                    variables: variables.map(str::to_string),
+                }),
+                ..RequestBlock::default()
+            },
+            auth: None,
+            variables: None,
+            scripts: None,
+            tests: None,
+        }
+    }
+
+    async fn send_doc(doc: &RequestDoc) {
+        let oauth_cache = Oauth2Cache::default();
+        let noop_browser = |_: &str| -> Result<(), String> { Ok(()) };
+        let mut transient = BTreeMap::new();
+        let _ = send(SendInput {
+            doc,
+            env_label: None,
+            env: None,
+            collection: None,
+            workspace_doc: None,
+            transient: &mut transient,
+            prev: None,
+            http: HttpOptions::default(),
+            secret_source: &FakeSecrets,
+            request_path: None,
+            collection_vars: Default::default(),
+            folder_vars: Default::default(),
+            env_values: Default::default(),
+            env_file: None,
+            workspace_root: None,
+            oauth_cache: &oauth_cache,
+            open_browser: &noop_browser,
+            cookie_jar: None,
+            send_cookies: false,
+            store_cookies: false,
+            iteration_vars: Default::default(),
+        })
+        .await;
+    }
+
+    fn sent_body(raw: &str) -> String {
+        raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string()
+    }
+
+    #[tokio::test]
+    async fn graphql_body_sends_json_envelope() {
+        // The pre-request machinery seeds `req.body` with the query preview;
+        // that must never replace the structured body, which is turned into
+        // the real `{"query", "variables"}` payload by `build_body`.
+        let (url, seen) = body_capture_server().await;
+        send_doc(
+            &graphql_doc(
+                &url,
+                "query GetUser($id: ID!) { user(id: $id) { id } }",
+                Some(r#"{"id": "1"}"#),
+            ),
+        )
+        .await;
+        let raw = seen.lock().expect("lock").clone();
+        let payload: serde_json::Value =
+            serde_json::from_str(&sent_body(&raw)).expect("body is the JSON envelope");
+        assert_eq!(payload["query"], "query GetUser($id: ID!) { user(id: $id) { id } }");
+        assert_eq!(payload["variables"]["id"], "1");
+    }
+
+    #[tokio::test]
+    async fn script_set_body_still_replaces_the_body() {
+        let (url, seen) = body_capture_server().await;
+        let mut doc = graphql_doc(&url, "query { me }", None);
+        doc.scripts = Some(Scripts {
+            pre_request: Some(r#"req.setBody("plain text body");"#.into()),
+            post_response: None,
+        });
+        send_doc(&doc).await;
+        let raw = seen.lock().expect("lock").clone();
+        assert_eq!(sent_body(&raw), "plain text body");
     }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatJsonKeepingTags } from "./RequestEditor";
+import { formatJsonKeepingTags } from "./formatJson";
 
 describe("formatJsonKeepingTags", () => {
   it("formats plain JSON unchanged", () => {

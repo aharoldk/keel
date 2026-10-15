@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
-import { Braces, ClipboardCopy, FolderOpen, Play, Save } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
+import { Braces, ChevronDown, ChevronRight, ClipboardCopy, FolderOpen, Play, Save } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Check, Plus, X } from "lucide-react";
@@ -35,6 +42,8 @@ import DocsTab from "@/features/request/DocsTab";
 import AuthEditor from "@/features/collections/AuthEditor";
 import ResponseViewer from "@/features/response/ResponseViewer";
 import QueryBuilder from "@/features/request/QueryBuilder";
+import { formatGraphql } from "@/features/request/graphql";
+import { formatJsonKeepingTags } from "@/features/request/formatJson";
 import WsPanel from "@/features/request/WsPanel";
 import GrpcPanel from "@/features/request/GrpcPanel";
 import VariableInput from "@/components/VariableInput";
@@ -132,7 +141,13 @@ export default function RequestEditor() {
   }, [activePath, activeEnv, workspaceRoot, envValuesRevision, prevRefsRevision]);
 
   const [editorTab, setEditorTab] = useState<EditorTabId>("params");
-  const [grpcResult, setGrpcResult] = useState("");
+  const setTabResult = useKeel((s) => s.setResult);
+  const onGrpcResult = useCallback(
+    (result: SendResult) => {
+      if (activePath) setTabResult(activePath, result);
+    },
+    [setTabResult, activePath],
+  );
 
   useEffect(() => {
     const onTab = (e: Event) => {
@@ -286,19 +301,10 @@ export default function RequestEditor() {
           <WsPanel path={tab.path} doc={doc} setDoc={setDoc} toast={toast} />
         </div>
       )}
-      {protocol === "grpc" && (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <GrpcPanel doc={doc} setDoc={setDoc} toast={toast} onResult={setGrpcResult} />
-          {grpcResult && (
-            <pre className="mx-2 mb-2 p-2 text-xs font-mono bg-bg-1 border border-line-0 rounded overflow-auto max-h-48 shrink-0">
-              {grpcResult}
-            </pre>
-          )}
-        </div>
-      )}
 
-      {/* Editor + response split */}
-      {protocol !== "websocket" && protocol !== "grpc" && (
+      {/* Editor + response split — HTTP, GraphQL and gRPC share the
+          response pane; WebSocket is a live console and stays full-height. */}
+      {protocol !== "websocket" && (
       <SplitPane
         key={splitDirection}
         className="flex-1 min-h-0"
@@ -307,6 +313,11 @@ export default function RequestEditor() {
         min={140}
         max={splitDirection === "horizontal" ? 960 : 620}
         top={
+          protocol === "grpc" ? (
+            <div className="h-full min-h-0 flex flex-col">
+              <GrpcPanel doc={doc} setDoc={setDoc} toast={toast} onResult={onGrpcResult} />
+            </div>
+          ) : (
           <div className="h-full flex flex-col">
             <EditorTabBar
               tabs={editorTabs}
@@ -353,10 +364,17 @@ export default function RequestEditor() {
               )}
               {editorTab === "body" && (
                 <div className="h-full min-h-0 flex flex-col">
-                  <BodyTab doc={doc} setDoc={setDoc} toast={toast} variables={variables} />
-                  {protocol === "graphql" && doc.request.body?.type === "graphql" && (
-                    <QueryBuilder doc={doc} setDoc={setDoc} toast={toast} />
-                  )}
+                  <BodyTab
+                    doc={doc}
+                    setDoc={setDoc}
+                    toast={toast}
+                    variables={variables}
+                    sidePanel={
+                      protocol === "graphql" && doc.request.body?.type === "graphql" ? (
+                        <QueryBuilder doc={doc} setDoc={setDoc} toast={toast} />
+                      ) : undefined
+                    }
+                  />
                 </div>
               )}
               {editorTab === "scripts" && (
@@ -368,8 +386,9 @@ export default function RequestEditor() {
               {editorTab === "docs" && (
                 <DocsTab doc={doc} setDoc={setDoc} />
               )}
+              </div>
             </div>
-          </div>
+          )
         }
         bottom={<ResponseViewer />}
       />
@@ -379,62 +398,6 @@ export default function RequestEditor() {
 }
 
 /* ---------- Body tab ---------- */
-
-/**
- * Rewrites `#{…}` / `{{…}}` tags in JSON text, reporting whether each one
- * sits inside a JSON string (vs. in a value position). String state tracks
- * escapes so `\"` inside a value doesn't flip it.
- */
-function mapJsonTags(text: string, f: (tag: string, inString: boolean) => string): string {
-  const re = /#\{[^{}#]*\}|\{\{[^{}]*\}\}/g;
-  let out = "";
-  let last = 0;
-  let inStr = false;
-  let esc = false;
-  const track = (s: string) => {
-    for (const ch of s) {
-      if (esc) {
-        esc = false;
-        continue;
-      }
-      if (ch === "\\" && inStr) esc = true;
-      else if (ch === '"') inStr = !inStr;
-    }
-  };
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const before = text.slice(last, m.index);
-    out += before;
-    track(before);
-    const emitted = f(m[0], inStr);
-    out += emitted;
-    track(emitted);
-    last = m.index + m[0].length;
-  }
-  return out + text.slice(last);
-}
-
-/** Pretty-prints JSON while preserving `#{…}` / `{{…}}` tags, bare or not. */
-export function formatJsonKeepingTags(content: string): string {
-  const masks: { tag: string; outside: boolean }[] = [];
-  const masked = mapJsonTags(content, (tag, inString) => {
-    const token = `__KEEL_TAG_${masks.length}__`;
-    masks.push({ tag, outside: !inString });
-    // A bare tag sits in a value position — give the token quotes so the
-    // masked text parses; inside a string the quotes are already there.
-    return inString ? token : `"${token}"`;
-  });
-  const parsed = JSON.parse(masked);
-  let out = JSON.stringify(parsed, null, 2);
-  for (let i = 0; i < masks.length; i++) {
-    const { tag, outside } = masks[i];
-    const token = `__KEEL_TAG_${i}__`;
-    out = outside
-      ? out.replace(`"${token}"`, tag) // drop the JSON quotes again
-      : out.split(token).join(tag); // substitute within the string
-  }
-  return out;
-}
 
 const BODY_TYPES: { value: Body["type"]; label: string }[] = [
   { value: "none", label: "None" },
@@ -452,16 +415,49 @@ function BodyTab({
   setDoc,
   toast,
   variables,
+  sidePanel,
 }: {
   doc: RequestDoc;
   setDoc: (d: RequestDoc) => void;
   toast: (msg: string, kind?: "error" | "success" | "info") => void;
   variables: VariableSuggestion[];
+  /** Extra panel rendered beside the body editors (e.g. the query builder). */
+  sidePanel?: ReactNode;
 }) {
   const body: Body = doc.request.body ?? { type: "none" };
 
   const setBody = (b: Body) =>
     setDoc({ ...doc, request: { ...doc.request, body: b } });
+
+  // Share of the GraphQL body height given to the variables editor; the
+  // query editor fills the rest. Dragging the divider adjusts it, and the
+  // editor can be minimized away entirely.
+  const [varsShare, setVarsShare] = useState(20);
+  const [varsOpen, setVarsOpen] = useState(true);
+  const graphqlSplitRef = useRef<HTMLDivElement | null>(null);
+
+  const startVarsDrag = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const rect = graphqlSplitRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const startY = e.clientY;
+    const startShare = varsShare;
+    const onMove = (ev: MouseEvent) => {
+      const deltaPct = ((startY - ev.clientY) / rect.height) * 100;
+      setVarsShare(Math.max(10, Math.min(80, startShare + deltaPct)));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    window.getSelection()?.removeAllRanges();
+  };
 
   const changeType = (t: Body["type"]) => {
     if (t === "none") setBody({ type: "none" });
@@ -487,6 +483,30 @@ function BodyTab({
     }
   };
 
+  const beautifyGraphql = () => {
+    if (body.type !== "graphql") return;
+    let nextVariables = body.variables ?? "";
+    if (nextVariables.trim()) {
+      try {
+        nextVariables = formatJsonKeepingTags(nextVariables);
+      } catch (e) {
+        toast(`Invalid variables JSON: ${String(e)}`, "error");
+      }
+    }
+    setBody({ ...body, query: formatGraphql(body.query), variables: nextVariables });
+  };
+
+  const beautifyVariables = () => {
+    if (body.type !== "graphql") return;
+    const raw = body.variables ?? "";
+    if (!raw.trim()) return;
+    try {
+      setBody({ ...body, variables: formatJsonKeepingTags(raw) });
+    } catch (e) {
+      toast(`Invalid variables JSON: ${String(e)}`, "error");
+    }
+  };
+
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex items-center gap-2 p-2 shrink-0">
@@ -506,101 +526,156 @@ function BodyTab({
             Format
           </Button>
         )}
+        {body.type === "graphql" && (
+          <Button variant="ghost" className="h-7" onClick={beautifyGraphql}>
+            Beautify
+          </Button>
+        )}
       </div>
 
-      {(body.type === "json" || body.type === "text" || body.type === "xml") && (
-        <div className="flex-1 min-h-0 flex flex-col bg-bg-1">
-          <div className="shrink-0 px-2 pt-1 text-[10px] font-mono text-fg-2">
-            {"#{body.accessToken} · #{header.X-Trace} · #{status} — from the previous response"}
-          </div>
-          <div className="flex-1 min-h-0">
-            <CodeEditor
-              value={body.content}
-              onChange={(v) => setBody({ ...body, content: v })}
-              language={body.type === "json" ? "json" : "text"}
-              appearance="editor"
-              lineNumbers
-              height="100%"
-              variables={variables}
-              placeholder={
-                body.type === "json" ? '{\n  "key": "#{body.accessToken}"\n}' : "Body…"
-              }
-            />
-          </div>
-        </div>
-      )}
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 flex flex-col">
+          {(body.type === "json" || body.type === "text" || body.type === "xml") && (
+            <div className="flex-1 min-h-0 flex flex-col bg-bg-1">
+              <div className="shrink-0 px-2 pt-1 text-[10px] font-mono text-fg-2">
+                {"#{body.accessToken} · #{header.X-Trace} · #{status} — from the previous response"}
+              </div>
+              <div className="flex-1 min-h-0">
+                <CodeEditor
+                  value={body.content}
+                  onChange={(v) => setBody({ ...body, content: v })}
+                  language={body.type === "json" ? "json" : "text"}
+                  appearance="editor"
+                  lineNumbers
+                  height="100%"
+                  variables={variables}
+                  placeholder={
+                    body.type === "json" ? '{\n  "key": "#{body.accessToken}"\n}' : "Body…"
+                  }
+                />
+              </div>
+            </div>
+          )}
 
-      {(body.type === "form-urlencoded" || body.type === "multipart") && (
-        <div className="p-2 pt-0 flex flex-col gap-1.5">
-          <KVEditor
-            rows={body.items}
-            onChange={(items) => setBody({ ...body, items })}
-            allowFile={body.type === "multipart"}
-            namePlaceholder="Name"
-            valuePlaceholder="Value"
-            variables={variables}
-          />
-          {body.type === "multipart" && (
-            <div className="text-xs text-fg-2">
-              File rows send the file at the given path.
+          {(body.type === "form-urlencoded" || body.type === "multipart") && (
+            <div className="p-2 pt-0 flex flex-col gap-1.5">
+              <KVEditor
+                rows={body.items}
+                onChange={(items) => setBody({ ...body, items })}
+                allowFile={body.type === "multipart"}
+                namePlaceholder="Name"
+                valuePlaceholder="Value"
+                variables={variables}
+              />
+              {body.type === "multipart" && (
+                <div className="text-xs text-fg-2">
+                  File rows send the file at the given path.
+                </div>
+              )}
+            </div>
+          )}
+
+          {body.type === "binary" && (
+            <div className="flex items-center gap-1.5 px-2">
+              <TextInput
+                value={body.path}
+                onChange={(e) => setBody({ ...body, path: e.target.value })}
+                placeholder="/path/to/file"
+                className="flex-1 font-mono"
+              />
+              <IconButton title="Browse for file" onClick={() => void browseBinary()}>
+                <FolderOpen size={14} />
+              </IconButton>
+            </div>
+          )}
+
+          {body.type === "graphql" && (
+            <div
+              ref={graphqlSplitRef}
+              className="flex-1 min-h-0 flex flex-col pb-2"
+            >
+              {/* Query — fills whatever the variables editor does not take */}
+              <div className="flex-1 min-h-0 flex flex-col">
+                <div className="px-2 text-xs font-semibold text-fg-1 shrink-0">Query</div>
+                <div className="flex-1 min-h-0 bg-bg-1">
+                  <CodeEditor
+                    value={body.query}
+                    onChange={(v) => setBody({ ...body, query: v })}
+                    language="graphql"
+                    appearance="editor"
+                    lineNumbers
+                    height="100%"
+                    variables={variables}
+                    placeholder="{ me { name } }"
+                  />
+                </div>
+              </div>
+
+              {/* Divider — drag to resize the two editors (hidden when
+                  the variables editor is minimized) */}
+              {varsOpen && (
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  title="Drag to resize query and variables"
+                  onMouseDown={startVarsDrag}
+                  className="h-1.5 shrink-0 cursor-row-resize bg-line-0 hover:bg-line-focus transition-colors"
+                />
+              )}
+
+              {/* Variables — 20% of the height by default, drag to change,
+                  minimize to give the query the full height */}
+              <div
+                style={varsOpen ? { height: `${varsShare}%` } : undefined}
+                className={varsOpen ? "min-h-0 flex flex-col" : "shrink-0 flex flex-col"}
+              >
+                <div className="flex items-center gap-1.5 px-2 py-1 shrink-0">
+                  <button
+                    type="button"
+                    title={varsOpen ? "Minimize variables" : "Expand variables"}
+                    aria-label={varsOpen ? "Minimize variables" : "Expand variables"}
+                    aria-expanded={varsOpen}
+                    onClick={() => setVarsOpen((v) => !v)}
+                    className="flex items-center gap-1 text-xs font-semibold text-fg-1 hover:text-fg-0"
+                  >
+                    {varsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    Variables (JSON)
+                  </button>
+                  <span className="text-[10px] text-fg-2">left blank for none</span>
+                  <Button
+                    variant="ghost"
+                    className="h-6 px-1.5 text-[10px] ml-auto"
+                    onClick={beautifyVariables}
+                  >
+                    Beautify
+                  </Button>
+                </div>
+                {varsOpen && (
+                  <div className="flex-1 min-h-0 bg-bg-1">
+                    <CodeEditor
+                      value={body.variables ?? ""}
+                      onChange={(v) => setBody({ ...body, variables: v })}
+                      language="json"
+                      appearance="editor"
+                      lineNumbers
+                      height="100%"
+                      variables={variables}
+                      placeholder='{ "id": 1 }'
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
-      )}
 
-      {body.type === "binary" && (
-        <div className="flex items-center gap-1.5 px-2">
-          <TextInput
-            value={body.path}
-            onChange={(e) => setBody({ ...body, path: e.target.value })}
-            placeholder="/path/to/file"
-            className="flex-1 font-mono"
-          />
-          <IconButton title="Browse for file" onClick={() => void browseBinary()}>
-            <FolderOpen size={14} />
-          </IconButton>
-        </div>
-      )}
-
-      {body.type === "graphql" && (
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
-          <div className="flex flex-col gap-1">
-            <div className="px-2 text-xs font-semibold text-fg-1">Query</div>
-            <div className="h-44 shrink-0 bg-bg-1">
-              <CodeEditor
-                value={body.query}
-                onChange={(v) => setBody({ ...body, query: v })}
-                language="graphql"
-                appearance="editor"
-                lineNumbers
-                height="100%"
-                variables={variables}
-                placeholder="{ me { name } }"
-              />
-            </div>
+        {/* Side panel — e.g. the GraphQL query builder */}
+        {sidePanel && (
+          <div className="w-80 shrink-0 border-l border-line-0 min-h-0 overflow-y-auto">
+            {sidePanel}
           </div>
-          <div className="flex flex-col gap-1">
-            <div className="px-2 flex items-baseline gap-2">
-              <span className="text-xs font-semibold text-fg-1">
-                Variables (JSON)
-              </span>
-              <span className="text-[10px] text-fg-2">left blank for none</span>
-            </div>
-            <div className="h-28 shrink-0 bg-bg-1">
-              <CodeEditor
-                value={body.variables ?? ""}
-                onChange={(v) => setBody({ ...body, variables: v })}
-                language="json"
-                appearance="editor"
-                lineNumbers
-                height="100%"
-                variables={variables}
-                placeholder='{ "id": 1 }'
-              />
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,7 @@
+schemaVersion: '1'
+name: Long response
+kind: request
+description: Server returns a very large body — check the scroll in the body view, pretty and raw.
+request:
+  method: GET
+  url: '{{baseUrl}}/api/long-response'

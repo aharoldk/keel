@@ -5,7 +5,67 @@ protocol: grpc
 grpc:
   service: demo.v1.Users
   method: GetUser
-  proto: ''
+  proto: |-
+    syntax = "proto3";
+
+    package demo.v1;
+
+    message Address {
+      string city = 1;
+      string country = 2;
+    }
+
+    message User {
+      string id = 1;
+      string name = 2;
+      string email = 3;
+      int32 age = 4;
+      bool active = 5;
+      repeated string tags = 6;
+      Address address = 7;
+    }
+
+    message GetUserRequest {
+      string id = 1;
+    }
+
+    message ListUsersRequest {
+      int32 limit = 1;
+      bool include_inactive = 2;
+    }
+
+    message CreateUserRequest {
+      string name = 1;
+      string email = 2;
+      int32 age = 3;
+      repeated string tags = 4;
+    }
+
+    message DeleteUserRequest {
+      string id = 1;
+    }
+
+    message DeleteUserResponse {
+      bool deleted = 1;
+    }
+
+    message UserList {
+      repeated User users = 1;
+    }
+
+    service Users {
+      rpc GetUser (GetUserRequest) returns (User);
+      rpc ListUsers (ListUsersRequest) returns (UserList);
+      rpc CreateUser (CreateUserRequest) returns (User);
+      rpc DeleteUser (DeleteUserRequest) returns (DeleteUserResponse);
+      rpc WatchUsers (ListUsersRequest) returns (stream User);
+    }
 request:
   method: GET
   url: http://localhost:50052
+  body:
+    type: json
+    content: |-
+      {
+        "id": "1"
+      }

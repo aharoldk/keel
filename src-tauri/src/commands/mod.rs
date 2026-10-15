@@ -1009,6 +1009,9 @@ pub struct GrpcCallArgs {
     pub body: serde_json::Value,
     #[serde(default)]
     pub fields: Vec<crate::grpc::ProtoField>,
+    /// Name of the method's output message, used to decode the response.
+    #[serde(default)]
+    pub output: String,
     #[serde(default)]
     pub messages: Vec<crate::grpc::ProtoMessage>,
     #[serde(default)]
@@ -1030,6 +1033,7 @@ pub async fn grpc_call(args: GrpcCallArgs, ctx: Ctx<'_>) -> Result<crate::grpc::
         method: args.method,
         body: args.body,
         fields: args.fields,
+        output: args.output,
         messages: args.messages,
         headers,
         timeout_secs: settings.request_timeout_sec,
@@ -1048,6 +1052,9 @@ pub struct GrpcOpenArgs {
     pub body: serde_json::Value,
     #[serde(default)]
     pub fields: Vec<crate::grpc::ProtoField>,
+    /// Name of the method's output message, used to decode response frames.
+    #[serde(default)]
+    pub output: String,
     #[serde(default)]
     pub messages: Vec<crate::grpc::ProtoMessage>,
     #[serde(default)]
@@ -1069,6 +1076,7 @@ pub async fn grpc_open(app: tauri::AppHandle, args: GrpcOpenArgs, ctx: Ctx<'_>) 
         method: args.method,
         body: args.body,
         fields: args.fields,
+        output: args.output,
         messages: args.messages,
         headers,
         timeout_secs: settings.request_timeout_sec,

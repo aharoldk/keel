@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildQuery, namedType, typeString } from "./graphql";
+import { buildQuery, formatGraphql, namedType, typeString } from "./graphql";
 
 const leaf = (name: string) => ({ name, args: [], children: [] });
 
@@ -81,5 +81,41 @@ describe("graphql query builder", () => {
     };
     expect(typeString(type)).toBe("[String]!");
     expect(namedType(type)).toBe("String");
+  });
+});
+
+describe("formatGraphql", () => {
+  it("indents a minified selection set", () => {
+    expect(formatGraphql("{ me { name } }")).toBe("{\n  me {\n    name\n  }\n}\n");
+  });
+
+  it("keeps operation headers on one line and puts fields one per line", () => {
+    const out = formatGraphql(
+      'query GetUser($id: ID!) { user(id: $id, name: "x") { id name } }',
+    );
+    expect(out).toBe(
+      'query GetUser($id: ID!) {\n' +
+        '  user(id: $id, name: "x") {\n' +
+        "    id\n" +
+        "    name\n" +
+        "  }\n" +
+        "}\n",
+    );
+  });
+
+  it("keeps fragment headers and type conditions intact", () => {
+    expect(formatGraphql("fragment F on User { ... on Admin { id } }")).toBe(
+      "fragment F on User {\n  ... on Admin {\n    id\n  }\n}\n",
+    );
+  });
+
+  it("ignores braces inside strings, block strings and comments", () => {
+    expect(formatGraphql('{ a(b: "}{") c } # }')).toBe('{\n  a(b: "}{") c\n}\n# }\n');
+    expect(formatGraphql('{ a(b: """x { y""") c }')).toBe('{\n  a(b: """x { y""") c\n}\n');
+  });
+
+  it("returns empty or blank text unchanged", () => {
+    expect(formatGraphql("")).toBe("");
+    expect(formatGraphql("   \n  ")).toBe("");
   });
 });

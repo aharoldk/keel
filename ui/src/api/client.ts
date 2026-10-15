@@ -189,6 +189,7 @@ export const api = {
     method: string;
     body: unknown;
     fields: ProtoFile["messages"][number]["fields"];
+    output: string;
     messages: ProtoFile["messages"];
     headers: KV[];
   }) => invoke<GrpcResult>("grpc_call", { args }),
@@ -200,6 +201,7 @@ export const api = {
     method: string;
     body: unknown;
     fields: ProtoFile["messages"][number]["fields"];
+    output: string;
     messages: ProtoFile["messages"];
     headers: KV[];
   }) => invoke<void>("grpc_open", { args }),

@@ -160,6 +160,8 @@ interface KeelState {
   saveAllTabs: () => Promise<boolean>;
   saveActive: () => Promise<void>;
   sendActive: () => Promise<void>;
+  /** Stores a result for a tab without the HTTP send path (gRPC, WebSocket). */
+  setResult: (path: string, result: SendResult | null, error?: string | null) => void;
   renameRequest: (path: string, newName: string) => Promise<string | null>;
   duplicateRequest: (path: string) => Promise<void>;
   deleteNode: (path: string) => Promise<void>;
@@ -652,6 +654,11 @@ export const useKeel = create<KeelState>((set, get) => ({
     const p = get().activePath;
     if (p) await get().saveTab(p);
   },
+
+  setResult: (path, result, error = null) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.path === path ? { ...t, result, error } : t)),
+    })),
 
   async sendActive() {
     const s = get();

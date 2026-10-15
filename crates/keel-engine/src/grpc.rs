@@ -390,11 +390,28 @@ pub struct GrpcCall {
     pub service: String,
     pub method: String,
     pub body: Value,
+    /// Fields of the method's **input** message — used to encode the body.
     pub fields: Vec<ProtoField>,
+    /// Name of the method's **output** message — used to decode responses.
+    /// Empty or unknown falls back to [`GrpcCall::fields`].
+    pub output: String,
     pub messages: Vec<ProtoMessage>,
     pub headers: Vec<(String, String)>,
     pub timeout_secs: u64,
     pub insecure_tls: bool,
+}
+
+/// Field list for decoding responses: the output message's fields, resolved
+/// by name from `messages`. Falls back to `fields` when the output is empty
+/// or unknown (e.g. older callers that don't send it).
+fn output_fields<'a>(call: &'a GrpcCall) -> &'a [ProtoField] {
+    if call.output.is_empty() {
+        return &call.fields;
+    }
+    match call.messages.iter().find(|m| m.name == call.output) {
+        Some(m) => &m.fields,
+        None => &call.fields,
+    }
 }
 
 pub async fn call_unary(call: GrpcCall) -> Result<GrpcResult, String> {
@@ -433,7 +450,7 @@ pub async fn call_unary(call: GrpcCall) -> Result<GrpcResult, String> {
             .map(|(_, v)| v.clone())
             .unwrap_or_default(),
     };
-    let body = decode_frame(&raw, &call.fields, &call.messages)?;
+    let body = decode_frame(&raw, output_fields(&call), &call.messages)?;
     Ok(GrpcResult {
         status,
         grpc_status,
@@ -769,11 +786,12 @@ where
                 }
                 let message = buf[5..5 + len].to_vec();
                 buf.drain(..5 + len);
-                if call.fields.is_empty() {
+                let out_fields = output_fields(&call);
+                if out_fields.is_empty() {
                     emit_event("message", Some(hex_preview(&message)), None, None);
                     continue;
                 }
-                match decode_message(&message, &call.fields, &call.messages) {
+                match decode_message(&message, out_fields, &call.messages) {
                     Ok(v) => emit_event(
                         "message",
                         Some(serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into())),
@@ -1164,12 +1182,15 @@ mod tests {
         syntax = "proto3";
         package demo.v1;
         message User {
-          string name = 1;
-          int32 id = 2;
+          string id = 1;
+          string name = 2;
           bool active = 3;
         }
+        message GetRequest {
+          string id = 1;
+        }
         service Users {
-          rpc Get (User) returns (User);
+          rpc Get (GetRequest) returns (User);
         }
     "#;
 
@@ -1182,14 +1203,76 @@ mod tests {
     }
 
     #[test]
+    fn output_fields_resolves_the_output_message_by_name() {
+        let file = parse_proto(PROTO).unwrap();
+        let req = &file.messages[1]; // GetRequest: { id = 1 }
+        let json = serde_json::json!({"id": "7", "name": "ada", "active": true});
+        let bytes = encode_message(&json, &file.messages[0].fields, &file.messages).unwrap();
+
+        // Decoding with the *request* field list keeps only fields that share
+        // a number — exactly the silent response corruption `output_fields`
+        // exists to prevent (User.name/active vanish, only `id` survives).
+        let wrong = decode_message(&bytes, &req.fields, &file.messages).unwrap();
+        assert_eq!(wrong, serde_json::json!({"id": "7"}));
+
+        let call = GrpcCall {
+            url: "http://localhost:50052".into(),
+            service: "demo.v1.Users".into(),
+            method: "Get".into(),
+            body: serde_json::json!({}),
+            fields: req.fields.clone(),
+            output: "User".into(),
+            messages: file.messages.clone(),
+            headers: vec![],
+            timeout_secs: 30,
+            insecure_tls: false,
+        };
+        let right = decode_message(&bytes, output_fields(&call), &call.messages).unwrap();
+        assert_eq!(right, json);
+    }
+
+    #[test]
+    fn output_fields_falls_back_to_request_fields() {
+        let file = parse_proto(PROTO).unwrap();
+        let req = &file.messages[1];
+        let base = GrpcCall {
+            url: "http://localhost:50052".into(),
+            service: "demo.v1.Users".into(),
+            method: "Get".into(),
+            body: serde_json::json!({}),
+            fields: req.fields.clone(),
+            output: String::new(),
+            messages: file.messages.clone(),
+            headers: vec![],
+            timeout_secs: 30,
+            insecure_tls: false,
+        };
+        let unknown = GrpcCall {
+            url: "http://localhost:50052".into(),
+            service: "demo.v1.Users".into(),
+            method: "Get".into(),
+            body: serde_json::json!({}),
+            fields: req.fields.clone(),
+            output: "Nope".into(),
+            messages: file.messages.clone(),
+            headers: vec![],
+            timeout_secs: 30,
+            insecure_tls: false,
+        };
+        // No output name → the request fields; unknown name → same fallback.
+        assert_eq!(output_fields(&base).len(), req.fields.len());
+        assert_eq!(output_fields(&unknown).len(), req.fields.len());
+    }
+
+    #[test]
     fn roundtrips_json() {
         let file = parse_proto(PROTO).unwrap();
         let msg = &file.messages[0];
-        let json = serde_json::json!({"name": "ada", "id": 7, "active": true});
+        let json = serde_json::json!({"id": "7", "name": "ada", "active": true});
         let bytes = encode_message(&json, &msg.fields, &file.messages).unwrap();
         let back = decode_message(&bytes, &msg.fields, &file.messages).unwrap();
+        assert_eq!(back["id"], "7");
         assert_eq!(back["name"], "ada");
-        assert_eq!(back["id"], 7);
         assert_eq!(back["active"], true);
     }
 }

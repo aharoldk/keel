@@ -317,6 +317,7 @@ fn folder_node(root: &Path, path: &Path, name: &str) -> TreeNodeDto {
         kind: "folder".into(),
         method: None,
         url: None,
+        protocol: None,
         children: Some(children),
         meta: folder_meta_for(path),
     }
@@ -325,12 +326,40 @@ fn folder_node(root: &Path, path: &Path, name: &str) -> TreeNodeDto {
 fn request_node(root: &Path, path: &Path) -> Option<TreeNodeDto> {
     let text = std::fs::read_to_string(path).ok()?;
     let doc: RequestDoc = yaml_to(&text).ok()?;
+    let protocol = if let Some(p) = doc.protocol.as_deref() {
+        match p.to_ascii_lowercase().as_str() {
+            "graphql" => Some("graphql".to_string()),
+            "grpc" => Some("grpc".to_string()),
+            "websocket" | "ws" => Some("websocket".to_string()),
+            _ => Some(p.to_string()),
+        }
+    } else if doc.graphql.is_some()
+        || doc
+            .request
+            .body
+            .as_ref()
+            .map(|b| b.body_type == crate::model::BodyType::Graphql)
+            .unwrap_or(false)
+    {
+        Some("graphql".to_string())
+    } else if doc.grpc.is_some() {
+        Some("grpc".to_string())
+    } else if doc.websocket.is_some()
+        || doc.request.url.starts_with("ws://")
+        || doc.request.url.starts_with("wss://")
+    {
+        Some("websocket".to_string())
+    } else {
+        None
+    };
+
     Some(TreeNodeDto {
         path: rel_path(root, path),
         name: doc.name,
         kind: "request".into(),
         method: Some(doc.request.method),
         url: Some(doc.request.url),
+        protocol,
         children: None,
         meta: None,
     })
@@ -1300,6 +1329,53 @@ mod tests {
         // tree paths must round-trip through the path-validated commands
         read_request(&root, &child.path).expect("read via tree path");
         read_request(&root, &top_node.path).expect("read via tree path");
+    }
+
+    #[test]
+    fn load_tree_populates_protocol() {
+        let dir = TempDir::new().expect("dir");
+        let root = dir.path().join("ws");
+        init_workspace(&root, "WS").expect("init");
+
+        // Plain HTTP
+        let _http_req = create_request(&root, "", "HTTP Request").expect("http");
+
+        // GraphQL via protocol field
+        let gql_req = create_request(&root, "", "GQL Request").expect("gql");
+        let mut doc = read_request(&root, &gql_req).expect("read gql");
+        doc.protocol = Some("graphql".into());
+        std::fs::write(root.join(&gql_req), yaml_of(&doc).unwrap()).unwrap();
+
+        // GraphQL via body type
+        let gql_body_req = create_request(&root, "", "GQL Body Request").expect("gql body");
+        let mut doc = read_request(&root, &gql_body_req).expect("read gql body");
+        doc.request.body = Some(crate::model::Body {
+            body_type: crate::model::BodyType::Graphql,
+            query: Some("query { ping }".into()),
+            ..Default::default()
+        });
+        std::fs::write(root.join(&gql_body_req), yaml_of(&doc).unwrap()).unwrap();
+
+        // gRPC via protocol
+        let grpc_req = create_request(&root, "", "gRPC Request").expect("grpc");
+        let mut doc = read_request(&root, &grpc_req).expect("read grpc");
+        doc.protocol = Some("grpc".into());
+        std::fs::write(root.join(&grpc_req), yaml_of(&doc).unwrap()).unwrap();
+
+        // WebSocket via url scheme
+        let ws_req = create_request(&root, "", "WS Request").expect("ws");
+        let mut doc = read_request(&root, &ws_req).expect("read ws");
+        doc.request.url = "wss://example.com/socket".into();
+        std::fs::write(root.join(&ws_req), yaml_of(&doc).unwrap()).unwrap();
+
+        let tree = load_tree(&root).expect("tree");
+        let find_node = |name: &str| tree.iter().find(|n| n.name == name).unwrap();
+
+        assert_eq!(find_node("HTTP Request").protocol, None);
+        assert_eq!(find_node("GQL Request").protocol.as_deref(), Some("graphql"));
+        assert_eq!(find_node("GQL Body Request").protocol.as_deref(), Some("graphql"));
+        assert_eq!(find_node("gRPC Request").protocol.as_deref(), Some("grpc"));
+        assert_eq!(find_node("WS Request").protocol.as_deref(), Some("websocket"));
     }
 
     #[test]

@@ -114,6 +114,8 @@ pub struct TreeNodeDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<TreeNodeDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<FolderMetaDto>,

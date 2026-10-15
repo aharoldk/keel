@@ -8,6 +8,7 @@ import {
   Download,
   Lock,
   Send,
+  WrapText,
   X,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -57,6 +58,23 @@ export default function ResponseViewer(props: {
 
   const [respTab, setRespTab] = useState<ResponseTabId>("body");
   const [pretty, setPretty] = useState(true);
+  const [wrap, setWrap] = useState(() => {
+    try {
+      return localStorage.getItem("keel.responseWrap") !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleWrap = () => {
+    setWrap((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("keel.responseWrap", String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   if (!result && !error && !loading) {
     return (
@@ -202,6 +220,8 @@ export default function ResponseViewer(props: {
           result={result}
           pretty={pretty}
           setPretty={setPretty}
+          wrap={wrap}
+          onToggleWrap={toggleWrap}
           onCopy={() => void copyBody()}
           onDownload={() => void download()}
         />
@@ -315,12 +335,16 @@ function BodyPane({
   result,
   pretty,
   setPretty,
+  wrap,
+  onToggleWrap,
   onCopy,
   onDownload,
 }: {
   result: SendResult;
   pretty: boolean;
   setPretty: (p: boolean) => void;
+  wrap: boolean;
+  onToggleWrap: () => void;
   onCopy: () => void;
   onDownload: () => void;
 }) {
@@ -375,12 +399,25 @@ function BodyPane({
             </button>
           ))}
         </div>
+        <IconButton
+          className={cn(
+            "h-6 w-6 ml-1",
+            wrap ? "bg-bg-3 text-fg-0" : "text-fg-2 hover:text-fg-0",
+          )}
+          title={wrap ? "Disable soft wrap" : "Enable soft wrap"}
+          aria-label={wrap ? "Disable soft wrap" : "Enable soft wrap"}
+          aria-pressed={wrap}
+          onClick={onToggleWrap}
+        >
+          <WrapText size={12} />
+        </IconButton>
       </div>
 
       {isText ? (
         <LineList
           lines={lines}
           gutter={pretty}
+          wrap={wrap}
           renderLine={(line) => (showJson ? <JsonLine line={line} /> : line || " ")}
           className="flex-1 bg-bg-1"
         />

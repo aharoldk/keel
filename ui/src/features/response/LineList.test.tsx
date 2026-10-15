@@ -58,4 +58,40 @@ describe("LineList", () => {
     expect(screen.getByText("only line")).toBeTruthy();
     expect(screen.queryByText("line 401")).toBeNull();
   });
+
+  it("wraps lines when wrap is enabled", () => {
+    render(<LineList lines={["long line content"]} wrap renderLine={(l) => l} />);
+    const content = screen.getByText("long line content");
+    expect(content.className).toContain("whitespace-pre-wrap");
+    expect(content.className).toContain("break-all");
+    expect(content.closest(".overflow-auto")?.className).toContain("overflow-x-hidden");
+  });
+
+  it("does not wrap lines when wrap is disabled", () => {
+    render(<LineList lines={["long line content"]} wrap={false} renderLine={(l) => l} />);
+    const content = screen.getByText("long line content");
+    expect(content.className).toContain("whitespace-pre");
+    expect(content.className).not.toContain("whitespace-pre-wrap");
+    expect(content.closest(".overflow-auto")?.className).not.toContain("overflow-x-hidden");
+  });
+
+  it("moves the window when scrolled with wrap enabled", () => {
+    render(<LineList lines={lines} wrap renderLine={(l) => l} />);
+    const el = scroller();
+
+    Object.defineProperty(el, "scrollTop", { configurable: true, value: 24 * 400 });
+    fireEvent.scroll(el);
+
+    expect(screen.getByText("line 401")).toBeTruthy();
+    expect(screen.queryByText("line 1")).toBeNull();
+    expect(screen.queryByText("line 1000")).toBeNull();
+  });
+
+  it("toggles wrap mode without losing the active window", () => {
+    const { rerender } = render(<LineList lines={lines} wrap={false} renderLine={(l) => l} />);
+    expect(screen.getByText("line 1").className).toContain("whitespace-pre");
+
+    rerender(<LineList lines={lines} wrap renderLine={(l) => l} />);
+    expect(screen.getByText("line 1").className).toContain("whitespace-pre-wrap");
+  });
 });

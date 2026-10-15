@@ -308,20 +308,22 @@ export default function GrpcPanel({ doc, setDoc, toast, onResult }: Props) {
       )}
 
       {/* ---- Proto: the schema (collapsible, drag to resize) ---- */}
-      <div className="shrink-0 border-t border-line-0">
-        <div
-          onMouseDown={(e) => {
-            e.preventDefault();
-            protoDrag.current = { startY: e.clientY, startH: protoHeight };
-            document.body.style.cursor = "row-resize";
-            document.body.style.userSelect = "none";
-            window.getSelection()?.removeAllRanges();
-          }}
-          className="h-1.5 cursor-row-resize group flex items-center"
-          title="Drag to resize"
-        >
-          <div className="h-px w-full bg-line-0 group-hover:bg-accent" />
-        </div>
+      <div className="shrink-0">
+        {/* Drag handle — shown only while the section is open, like the
+            GraphQL variables divider */}
+        {protoOpen && (
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              protoDrag.current = { startY: e.clientY, startH: protoHeight };
+              document.body.style.cursor = "row-resize";
+              document.body.style.userSelect = "none";
+              window.getSelection()?.removeAllRanges();
+            }}
+            className="h-1.5 shrink-0 cursor-row-resize bg-line-0 hover:bg-line-focus transition-colors"
+            title="Drag to resize"
+          />
+        )}
         <div className="flex items-center gap-1.5 px-2 py-1">
           <button
             type="button"
@@ -356,7 +358,7 @@ export default function GrpcPanel({ doc, setDoc, toast, onResult }: Props) {
         </div>
         {protoOpen && (
           <div
-            className="min-h-0 bg-bg-1 border-t border-line-0 overflow-hidden"
+            className="min-h-0 bg-bg-1 overflow-hidden"
             style={{ height: protoHeight }}
           >
             <CodeEditor

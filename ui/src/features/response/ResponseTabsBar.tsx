@@ -69,7 +69,7 @@ export default function ResponseTabsBar({
   return (
     <div
       ref={containerRef}
-      className="relative ml-auto self-stretch flex items-stretch min-w-0"
+      className="relative grow self-stretch flex items-stretch min-w-0"
     >
       {/* Invisible measurement row: keeps natural tab widths regardless of what is shown. */}
       <div className="absolute inset-x-0 flex items-stretch invisible pointer-events-none select-none">
@@ -89,7 +89,7 @@ export default function ResponseTabsBar({
         ))}
       </div>
 
-      <div className="h-full flex items-stretch gap-0.5">
+      <div className="ml-auto h-full flex items-stretch gap-0.5">
         {tabs.map((t, i) =>
           isVisible(i) ? (
             <button

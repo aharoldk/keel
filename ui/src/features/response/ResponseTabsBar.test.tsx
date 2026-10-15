@@ -78,6 +78,18 @@ describe("ResponseTabsBar", () => {
     expect(screen.getAllByText("Body")).toHaveLength(1);
   });
 
+  it("brings hidden tabs back when the pane grows again", () => {
+    const utils = mount("body", () => {});
+    mockLayout(60, 150);
+    utils.rerender();
+    expect(screen.getByTitle("More tabs")).toBeTruthy();
+
+    mockLayout(60, 500);
+    utils.rerender();
+    expect(screen.queryByTitle("More tabs")).toBeNull();
+    expect(screen.getAllByText("Tests")).toHaveLength(2);
+  });
+
   it("lists hidden tabs in the overflow menu and selects one", () => {
     const onChange = vi.fn();
     const utils = mount("body", onChange);

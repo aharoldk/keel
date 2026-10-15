@@ -3,6 +3,8 @@ name: Introspect schema
 kind: request
 description: The exact introspection query keel sends — the mock's schema populates the field picker.
 protocol: graphql
+graphql:
+  operation: query
 request:
   method: POST
   url: '{{baseUrl}}/graphql'
@@ -12,68 +14,14 @@ request:
   body:
     type: graphql
     query: |
-      query KeelIntrospection {
-        __schema {
-          queryType {
-            name
-          }
-          mutationType {
-            name
-          }
-          subscriptionType {
-            name
-          }
-          types {
-            kind
-            name
-            description
-            fields(includeDeprecated: true) {
-              name
-              description
-              args {
-                name
-                description
-                defaultValue
-                type {
-                  ...TypeRef
-                }
-              }
-              type {
-                ...TypeRef
-              }
-            }
-            inputFields {
-              name
-              description
-              type {
-                ...TypeRef
-              }
-            }
-            enumValues(includeDeprecated: true) {
-              name
-              description
-            }
-          }
-        }
-      }
-      fragment TypeRef on __Type {
-        kind
-        name
-        ofType {
-          kind
+      query Query($id: ID!) {
+        user(id: $id) {
           name
-          ofType {
-            kind
-            name
-            ofType {
-              kind
-              name
-              ofType {
-                kind
-                name
-              }
-            }
-          }
+          email
+          id
         }
       }
-    variables: ''
+    variables: |-
+      {
+        "id": 1
+      }

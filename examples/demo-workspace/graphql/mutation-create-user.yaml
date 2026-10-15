@@ -2,6 +2,7 @@ schemaVersion: '1'
 name: Mutation — create user
 kind: request
 description: GraphQL mutation through the same body type.
+protocol: graphql
 request:
   method: POST
   url: '{{baseUrl}}/graphql'

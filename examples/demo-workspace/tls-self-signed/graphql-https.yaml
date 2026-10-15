@@ -2,6 +2,7 @@ schemaVersion: '1'
 name: GraphQL (https)
 kind: request
 description: GraphQL over https.
+protocol: graphql
 request:
   method: POST
   url: '{{baseUrlTls}}/graphql'

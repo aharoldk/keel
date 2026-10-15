@@ -2,6 +2,7 @@ schemaVersion: '1'
 name: Query — user by id (variables)
 kind: request
 description: graphql body with variables string → BodyType::Graphql + variables.
+protocol: graphql
 request:
   method: POST
   url: '{{baseUrl}}/graphql'

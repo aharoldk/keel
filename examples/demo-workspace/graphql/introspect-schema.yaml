@@ -11,12 +11,18 @@ request:
     value: application/json
   body:
     type: graphql
-    query: |-
+    query: |
       query KeelIntrospection {
         __schema {
-          queryType { name }
-          mutationType { name }
-          subscriptionType { name }
+          queryType {
+            name
+          }
+          mutationType {
+            name
+          }
+          subscriptionType {
+            name
+          }
           types {
             kind
             name
@@ -24,17 +30,50 @@ request:
             fields(includeDeprecated: true) {
               name
               description
-              args { name description defaultValue type { ...TypeRef } }
-              type { ...TypeRef }
+              args {
+                name
+                description
+                defaultValue
+                type {
+                  ...TypeRef
+                }
+              }
+              type {
+                ...TypeRef
+              }
             }
-            inputFields { name description type { ...TypeRef } }
-            enumValues(includeDeprecated: true) { name description }
+            inputFields {
+              name
+              description
+              type {
+                ...TypeRef
+              }
+            }
+            enumValues(includeDeprecated: true) {
+              name
+              description
+            }
           }
         }
       }
       fragment TypeRef on __Type {
         kind
         name
-        ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } }
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+              }
+            }
+          }
+        }
       }
     variables: ''

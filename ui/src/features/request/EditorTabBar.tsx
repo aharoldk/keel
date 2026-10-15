@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/utils";
 import { useOverflowTabs } from "@/components/useOverflowTabs";
@@ -7,6 +7,7 @@ export interface EditorTabItem {
   id: string;
   label: string;
   badge?: number;
+  icon?: ReactNode;
 }
 
 interface EditorTabBarProps {
@@ -71,6 +72,7 @@ export default function EditorTabBar({
             }}
             className="text-xs px-3 flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
+            {t.icon}
             {t.label}
             {t.badge != null && t.badge > 0 && <span className="text-[9px]">{t.badge}</span>}
           </button>
@@ -94,6 +96,7 @@ export default function EditorTabBar({
                   : "border-transparent text-fg-2 hover:text-fg-0",
               )}
             >
+              {t.icon}
               {t.label}
               {t.badge != null && t.badge > 0 && (
                 <span className="text-[9px] text-fg-2">{t.badge}</span>
@@ -138,6 +141,7 @@ export default function EditorTabBar({
                           : "text-fg-1 hover:bg-bg-hover hover:text-fg-0",
                       )}
                     >
+                      {t.icon}
                       {t.label}
                       {t.badge != null && t.badge > 0 && (
                         <span className="text-[9px] text-fg-2">{t.badge}</span>

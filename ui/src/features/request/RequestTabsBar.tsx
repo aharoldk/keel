@@ -53,6 +53,12 @@ function TabLabel({ editor, request }: { editor: EditorTab; request?: Tab }) {
       >
         {label}
       </span>
+      {request.wsConnected && (
+        <span
+          title="WebSocket connected"
+          className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0"
+        />
+      )}
       <span className="truncate max-w-40">{request.doc.name || "Untitled"}</span>
       {request.loading ? (
         <Spinner size={10} />

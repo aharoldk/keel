@@ -12,7 +12,11 @@ fn demo_workspace_is_valid() {
     .expect("collection.yaml parses");
     assert_eq!(collection.name, "Demo API");
 
-    for rel in ["environments/local.yaml", "environments/staging.yaml"] {
+    for rel in [
+        "environments/local.yaml",
+        "environments/staging.yaml",
+        "environments/ms-keel-tester.yaml",
+    ] {
         let env: EnvDoc = yaml_to(&std::fs::read_to_string(root.join(rel)).expect(rel))
             .unwrap_or_else(|e| panic!("{rel}: {e}"));
         assert!(env.variables.is_some(), "{rel} declares variables");
@@ -48,6 +52,9 @@ fn demo_workspace_is_valid() {
         "graphql/introspect-schema.yaml",
         "graphql/query-raw-json-envelope.yaml",
         "grpc/getuser.yaml",
+        "websocket/echo.yaml",
+        "websocket/echo-subprotocol.yaml",
+        "websocket/stream.yaml",
         "scripts/pre-request-test-scripts.yaml",
         "tls-self-signed/list-users-https.yaml",
         "tls-self-signed/graphql-https.yaml",

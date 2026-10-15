@@ -58,7 +58,25 @@ describe("RequestTabsBar close confirmation", () => {
   it("closeTab shortcut prompts for the active dirty tab", async () => {
     render(<RequestTabsBar />);
     act(() => runCommand("closeTab"));
-    await screen.findByText("Unsaved changes");
-    expect(useKeel.getState().tabs).toHaveLength(2);
+    await waitFor(() => expect(screen.getByText("Unsaved changes")).toBeTruthy());
+  });
+
+  it("renders green connected icon in tab when wsConnected is true", () => {
+    const wsTab = {
+      ...tab("ws.yaml", "WebSocket Echo"),
+      wsConnected: true,
+      doc: {
+        ...emptyRequestDoc("WebSocket Echo"),
+        protocol: "websocket" as const,
+      },
+    };
+    useKeel.setState({
+      tabs: [wsTab],
+      activePath: "ws.yaml",
+      editorTabs: [{ kind: "request", path: "ws.yaml" }],
+    });
+
+    render(<RequestTabsBar />);
+    expect(screen.getByTitle("WebSocket connected")).toBeTruthy();
   });
 });

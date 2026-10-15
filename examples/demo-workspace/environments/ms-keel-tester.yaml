@@ -6,3 +6,5 @@ variables:
   baseUrlTls: https://localhost:8443
   missingUserId: '9999'
   userId: '1'
+  wsUrl: ws://localhost:8080
+  wsUrlTls: wss://localhost:8443

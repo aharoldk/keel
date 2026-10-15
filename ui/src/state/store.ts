@@ -72,6 +72,7 @@ export interface Tab {
   loading: boolean;
   result: SendResult | null;
   error: string | null;
+  wsConnected?: boolean;
 }
 
 export interface Toast {
@@ -162,6 +163,7 @@ interface KeelState {
   sendActive: () => Promise<void>;
   /** Stores a result for a tab without the HTTP send path (gRPC, WebSocket). */
   setResult: (path: string, result: SendResult | null, error?: string | null) => void;
+  setWsConnected: (path: string, wsConnected: boolean) => void;
   renameRequest: (path: string, newName: string) => Promise<string | null>;
   duplicateRequest: (path: string) => Promise<void>;
   deleteNode: (path: string) => Promise<void>;
@@ -658,6 +660,11 @@ export const useKeel = create<KeelState>((set, get) => ({
   setResult: (path, result, error = null) =>
     set((s) => ({
       tabs: s.tabs.map((t) => (t.path === path ? { ...t, result, error } : t)),
+    })),
+
+  setWsConnected: (path, wsConnected) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.path === path ? { ...t, wsConnected } : t)),
     })),
 
   async sendActive() {

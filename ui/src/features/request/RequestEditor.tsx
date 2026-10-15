@@ -309,7 +309,14 @@ export default function RequestEditor() {
 
       {protocol === "websocket" && (
         <div className="flex-1 min-h-0">
-          <WsPanel path={tab.path} doc={doc} setDoc={setDoc} toast={toast} />
+          <WsPanel
+            path={tab.path}
+            doc={doc}
+            setDoc={setDoc}
+            toast={toast}
+            variables={variables}
+            splitDirection={splitDirection}
+          />
         </div>
       )}
 

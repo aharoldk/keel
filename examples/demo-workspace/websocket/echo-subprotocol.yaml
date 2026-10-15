@@ -1,0 +1,12 @@
+schemaVersion: '1'
+name: Echo with subprotocol
+kind: request
+protocol: websocket
+description: >-
+  Same echo endpoint with a sec-websocket-protocol — the mock echoes the
+  negotiated subprotocol back on open.
+request:
+  method: GET
+  url: 'ws://localhost:8080/ws'
+websocket:
+  protocols: chat

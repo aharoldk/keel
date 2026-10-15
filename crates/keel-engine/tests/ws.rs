@@ -4,6 +4,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use keel_engine::ws::{self, WsConnect, WsEvent};
 use tokio::sync::mpsc;
 
@@ -148,3 +149,58 @@ async fn rejects_a_non_ws_url() {
     .expect_err("should reject http://");
     assert!(err.contains("ws or wss"), "{err}");
 }
+
+#[tokio::test]
+async fn receives_server_initiated_close() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let server = tokio::spawn(async move {
+        let Ok((stream, _)) = listener.accept().await else {
+            return;
+        };
+        let ws = tokio_tungstenite::accept_async(stream).await.expect("accept");
+        let (mut write, _) = ws.split();
+        use futures_util::SinkExt;
+        use tokio_tungstenite::tungstenite::protocol::frame::CloseFrame;
+        use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+        let _ = write
+            .send(tokio_tungstenite::tungstenite::Message::Close(Some(CloseFrame {
+                code: CloseCode::Normal,
+                reason: "goodbye".into(),
+            })))
+            .await;
+    });
+
+    let hub = Arc::new(ws::WsHub::new());
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sid = "s4".to_string();
+
+    ws::connect(
+        hub.clone(),
+        sid.clone(),
+        WsConnect {
+            url: format!("ws://127.0.0.1:{port}/"),
+            headers: Vec::new(),
+            protocols: Vec::new(),
+        },
+        move |ev| {
+            let _ = tx.send(ev);
+        },
+    )
+    .await
+    .expect("connect");
+
+    let open = rx.recv().await.expect("open event");
+    assert_eq!(open.kind, "open");
+
+    let close = loop {
+        let ev = rx.recv().await.expect("close event");
+        if ev.kind == "close" {
+            break ev;
+        }
+    };
+    assert_eq!(close.data.as_deref(), Some("goodbye"));
+
+    let _ = tokio::time::timeout(Duration::from_secs(2), server).await;
+}
+

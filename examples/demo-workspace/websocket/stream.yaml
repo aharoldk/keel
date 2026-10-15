@@ -1,0 +1,10 @@
+schemaVersion: '1'
+name: Stream ticks
+kind: request
+protocol: websocket
+description: >-
+  Pushes {"type":"tick","seq":N} every 500ms — for testing streaming frames in
+  the UI timeline.
+request:
+  method: GET
+  url: 'ws://localhost:8080/ws/stream?ms=500'

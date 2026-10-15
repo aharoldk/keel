@@ -96,11 +96,19 @@ export function runCommand(id: ShortcutAction) {
   }
 }
 
+/**
+ * Actions suppressed while a text field has focus. Everything else runs
+ * globally so Save/Close tab keep working mid-typing; Send stays quiet so
+ * Ctrl+Enter never fires from inside the body editor or a textarea.
+ */
+const EDITABLE_BLOCKED_ACTIONS: ReadonlySet<ShortcutAction> = new Set(["send"]);
+
 export function handleGlobalKeydown(e: KeyboardEvent) {
-  if (isEditableTarget(e.target)) return;
+  const editable = isEditableTarget(e.target);
   const shortcuts = useKeel.getState().settings.shortcuts;
   for (const def of SHORTCUT_DEFS) {
     if (!matchesCombo(e, comboFor(def.id, shortcuts))) continue;
+    if (editable && EDITABLE_BLOCKED_ACTIONS.has(def.id)) return;
     e.preventDefault();
     runCommand(def.id);
     return;

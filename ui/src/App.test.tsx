@@ -28,7 +28,7 @@ describe("App global shortcuts", () => {
     await waitFor(() => expect(invoked("send_request")).toBe(true));
   });
 
-  it("Ctrl+Enter inside a textarea does not send the request (Bug 7)", () => {
+  it("Ctrl+Enter inside a textarea does not send the request", () => {
     const ta = document.createElement("textarea");
     document.body.appendChild(ta);
     fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
@@ -41,6 +41,14 @@ describe("App global shortcuts", () => {
     await waitFor(() => expect(invoked("request_save")).toBe(true));
   });
 
+  it("Ctrl+S saves even while typing in an input", async () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: "s", ctrlKey: true });
+    await waitFor(() => expect(invoked("request_save")).toBe(true));
+    input.remove();
+  });
+
   it("uses a remapped save shortcut", async () => {
     useKeel.setState({
       settings: { ...useKeel.getState().settings, shortcuts: { save: "mod+shift+s" } },
@@ -51,15 +59,19 @@ describe("App global shortcuts", () => {
     await waitFor(() => expect(invoked("request_save")).toBe(true));
   });
 
-  it("Ctrl+S inside an input does not save (Bug 7)", () => {
+  it("Ctrl+W closes the active tab even while typing in an input", () => {
+    const seen: string[] = [];
+    const onClose = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("keel:close-tab", onClose);
     const input = document.createElement("input");
     document.body.appendChild(input);
-    fireEvent.keyDown(input, { key: "s", ctrlKey: true });
-    expect(invoked("request_save")).toBe(false);
+    fireEvent.keyDown(input, { key: "w", ctrlKey: true });
+    window.removeEventListener("keel:close-tab", onClose);
     input.remove();
+    expect(seen).toEqual(["a.yaml"]);
   });
 
-  it("Ctrl+Enter inside CodeMirror content does not send the request (Bug 7)", () => {
+  it("Ctrl+Enter inside CodeMirror content does not send the request", () => {
     const cm = document.createElement("div");
     cm.className = "cm-content";
     document.body.appendChild(cm);
@@ -77,7 +89,7 @@ describe("App global shortcuts", () => {
     expect(seen).toEqual(["a.yaml"]);
   });
 
-  it("Ctrl+Shift+R inside an input does not trigger rename", () => {
+  it("Ctrl+Shift+R triggers rename even while typing in an input", () => {
     const seen: string[] = [];
     const onRename = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener("keel:start-rename", onRename);
@@ -86,6 +98,6 @@ describe("App global shortcuts", () => {
     fireEvent.keyDown(input, { key: "r", ctrlKey: true, shiftKey: true });
     window.removeEventListener("keel:start-rename", onRename);
     input.remove();
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(["a.yaml"]);
   });
 });

@@ -194,6 +194,106 @@ fn plain_snapshot(scopes: &ScopeStack) -> BTreeMap<String, String> {
     out
 }
 
+/// Resolves a request's `{{variables}}` against the environment for static
+/// consumers (codegen). Unlike [`send`] this runs no scripts and applies no
+/// `#{prev}` refs — it is a pure template pass over the doc, so generated
+/// snippets carry the same values the request would send.
+pub fn resolve_doc(
+    doc: &RequestDoc,
+    env: Option<&EnvDoc>,
+    collection: Option<&CollectionDoc>,
+    workspace_doc: Option<&WorkspaceDoc>,
+    folder_vars: &BTreeMap<String, String>,
+    env_values: &BTreeMap<String, String>,
+    secret_source: &dyn SecretSource,
+) -> RequestDoc {
+    let mut transient = BTreeMap::new();
+    let scopes = make_scopes(
+        workspace_doc,
+        env,
+        collection,
+        folder_vars,
+        doc,
+        &BTreeMap::new(),
+        &mut transient,
+        env_values,
+    );
+    let resolve = |t: &str| {
+        // URL-encoded curls carry `%7B%7Bname%7D%7D`; decode before matching.
+        let decoded = crate::variables::decode_template_braces(t);
+        Interpolator::new(&scopes, secret_source).resolve(&decoded).value
+    };
+
+    let mut out = doc.clone();
+    out.request.url = resolve(&doc.request.url);
+
+    if let Some(rows) = &doc.request.path_params {
+        let resolved = resolve_rows(rows, &resolve);
+        // Best effort: a missing value leaves the `:name` segment in place,
+        // matching the unresolved export rather than failing generation.
+        if let Ok(url) = crate::path_params::apply(
+            &out.request.url,
+            &resolved
+                .iter()
+                .map(|kv| (kv.name.clone(), kv.value.clone()))
+                .collect::<Vec<_>>(),
+        ) {
+            out.request.url = url;
+        }
+        out.request.path_params = Some(resolved);
+    }
+    if let Some(rows) = &doc.request.params {
+        out.request.params = Some(resolve_rows(rows, &resolve));
+    }
+    if let Some(rows) = &doc.request.headers {
+        out.request.headers = Some(resolve_rows(rows, &resolve));
+    }
+    if let Some(body) = &doc.request.body {
+        out.request.body = Some(resolve_body(body, &resolve));
+    }
+    if let Some(auth) = &doc.auth {
+        out.auth = Some(resolve_auth_fields(auth, &resolve));
+    }
+    out
+}
+
+fn resolve_rows(rows: &[crate::model::KV], resolve: &impl Fn(&str) -> String) -> Vec<crate::model::KV> {
+    rows.iter()
+        .map(|kv| crate::model::KV {
+            name: kv.name.clone(),
+            value: resolve(&kv.value),
+            enabled: kv.enabled,
+            kind: kv.kind.clone(),
+        })
+        .collect()
+}
+
+fn resolve_body(
+    body: &crate::model::Body,
+    resolve: &impl Fn(&str) -> String,
+) -> crate::model::Body {
+    let mut out = body.clone();
+    out.content = body.content.as_ref().map(|c| resolve(c));
+    out.path = body.path.as_ref().map(|p| resolve(p));
+    out.query = body.query.as_ref().map(|q| resolve(q));
+    out.variables = body.variables.as_ref().map(|v| resolve(v));
+    out.items = body.items.as_ref().map(|rows| resolve_rows(rows, resolve));
+    out
+}
+
+fn resolve_auth_fields(
+    auth: &crate::model::Auth,
+    resolve: &impl Fn(&str) -> String,
+) -> crate::model::Auth {
+    let mut out = auth.clone();
+    out.token = auth.token.as_ref().map(|t| resolve(t));
+    out.username = auth.username.as_ref().map(|u| resolve(u));
+    out.password = auth.password.as_ref().map(|p| resolve(p));
+    out.key = auth.key.as_ref().map(|k| resolve(k));
+    out.value = auth.value.as_ref().map(|v| resolve(v));
+    out
+}
+
 /// Writes `keel.setEnvVar` / `keel.deleteEnvVar` into the active environment's
 /// current values. Secret names are skipped — those stay in the keychain.
 /// An empty update deletes the current value so the committed default is used.
@@ -290,10 +390,12 @@ pub async fn send(input: SendInput<'_>) -> SendOutput {
     );
 
     let resolve_template = |scopes: &ScopeStack, template: &str, stats: &mut ResolveStats| -> String {
+        // URL-encoded curls carry `%7B%7Bname%7D%7D`; decode before matching.
+        let decoded = crate::variables::decode_template_braces(template);
         // Previous-response tags first (unresolved ones are reported as
         // missing), then `{{vars}}` on the result.
         let staged =
-            crate::engine::variables::apply_prev_refs_report(template, prev, &mut stats.missing);
+            crate::engine::variables::apply_prev_refs_report(&decoded, prev, &mut stats.missing);
         let interp = Interpolator {
             scopes,
             secrets: secret_source,
@@ -1494,5 +1596,219 @@ mod json_body_tests {
         let mut resolve = resolver(&[]);
         let err = substitute_json_tags(raw, &mut resolve).expect_err("errors");
         assert!(err.contains("expected"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod resolve_doc_tests {
+    use super::*;
+    use crate::model::{Body, BodyType, KV, RequestBlock, SCHEMA_VERSION};
+
+    struct FakeSecrets;
+    impl SecretSource for FakeSecrets {
+        fn get(&self, _name: &str) -> Result<String, String> {
+            Ok("fake-secret".into())
+        }
+    }
+
+    fn env_doc(variables: &[(&str, &str)], secrets: &[(&str, &str)]) -> EnvDoc {
+        EnvDoc {
+            schema_version: SCHEMA_VERSION.into(),
+            name: "local".into(),
+            description: None,
+            variables: Some(
+                variables
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            ),
+            secrets: Some(
+                secrets
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn doc_with(url: &str) -> RequestDoc {
+        RequestDoc {
+            schema_version: SCHEMA_VERSION.into(),
+            name: "t".into(),
+            kind: "request".into(),
+            description: None,
+            protocol: None,
+            graphql: None,
+            websocket: None,
+            grpc: None,
+            request: RequestBlock {
+                method: crate::model::HttpMethod::POST,
+                url: url.into(),
+                ..RequestBlock::default()
+            },
+            auth: None,
+            variables: None,
+            scripts: None,
+            tests: None,
+        }
+    }
+
+    #[test]
+    fn resolves_env_and_request_variables_everywhere() {
+        let env = env_doc(&[("baseUrl", "http://env.example")], &[("apiToken", "")]);
+        let mut doc = doc_with("{{baseUrl}}/login");
+        doc.variables = Some(BTreeMap::from([("user".to_string(), "ada@example.com".to_string())]));
+        doc.request.params = Some(vec![KV {
+            name: "flow".into(),
+            value: "{{flowId}}".into(),
+            enabled: true,
+            kind: None,
+        }]);
+        doc.request.headers = Some(vec![
+            KV {
+                name: "X-User".into(),
+                value: "{{user}}".into(),
+                enabled: true,
+                kind: None,
+            },
+            KV {
+                name: "X-Api-Key".into(),
+                value: "{{apiToken}}".into(),
+                enabled: true,
+                kind: None,
+            },
+        ]);
+        doc.request.body = Some(Body {
+            body_type: BodyType::Json,
+            content: Some(r#"{"identifier": "{{user}}"}"#.into()),
+            ..Body::default()
+        });
+        doc.auth = Some(crate::model::Auth {
+            auth_type: crate::model::AuthType::Bearer,
+            token: Some("{{apiToken}}".into()),
+            ..crate::model::Auth::default()
+        });
+
+        let out = resolve_doc(
+            &doc,
+            Some(&env),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::from([("flowId".to_string(), "flow123".to_string())]),
+            &FakeSecrets,
+        );
+
+        assert_eq!(out.request.url, "http://env.example/login");
+        assert_eq!(out.request.params.clone().unwrap()[0].value, "flow123");
+        let headers = out.request.headers.clone().unwrap();
+        assert_eq!(headers[0].value, "ada@example.com");
+        // Secret-backed names resolve through the keychain.
+        assert_eq!(headers[1].value, "fake-secret");
+        assert_eq!(
+            out.request.body.clone().unwrap().content.unwrap(),
+            r#"{"identifier": "ada@example.com"}"#
+        );
+        assert_eq!(out.auth.clone().unwrap().token.unwrap(), "fake-secret");
+
+        // And the generated curl carries the resolved values, not templates.
+        let curl = crate::codegen::generate_code(&out, "curl").expect("curl");
+        assert!(curl.contains("http://env.example/login?flow=flow123"), "{curl}");
+        assert!(curl.contains("X-Api-Key: fake-secret"), "{curl}");
+        assert!(curl.contains("Bearer fake-secret"), "{curl}");
+        assert!(curl.contains(r#""identifier": "ada@example.com""#), "{curl}");
+        assert!(!curl.contains("{{"), "{curl}");
+    }
+
+    #[test]
+    fn path_params_are_substituted_into_the_url() {
+        let mut doc = doc_with("{{baseUrl}}/users/:id");
+        doc.request.path_params = Some(vec![KV {
+            name: "id".into(),
+            value: "{{userId}}".into(),
+            enabled: true,
+            kind: None,
+        }]);
+        let out = resolve_doc(
+            &doc,
+            Some(&env_doc(&[("baseUrl", "http://env.example")], &[])),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::from([("userId".to_string(), "42".to_string())]),
+            &FakeSecrets,
+        );
+        assert_eq!(out.request.url, "http://env.example/users/42");
+    }
+
+    #[test]
+    fn path_param_without_a_row_keeps_the_segment() {
+        let doc = doc_with("{{baseUrl}}/users/:id");
+        let out = resolve_doc(
+            &doc,
+            Some(&env_doc(&[("baseUrl", "http://env.example")], &[])),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &FakeSecrets,
+        );
+        assert_eq!(out.request.url, "http://env.example/users/:id");
+    }
+
+    #[test]
+    fn unresolved_path_param_value_keeps_the_template() {
+        let mut doc = doc_with("{{baseUrl}}/users/:id");
+        doc.request.path_params = Some(vec![KV {
+            name: "id".into(),
+            value: "{{userId}}".into(),
+            enabled: true,
+            kind: None,
+        }]);
+        let out = resolve_doc(
+            &doc,
+            Some(&env_doc(&[("baseUrl", "http://env.example")], &[])),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &FakeSecrets,
+        );
+        assert_eq!(out.request.url, "http://env.example/users/%7B%7BuserId%7D%7D");
+    }
+
+    #[test]
+    fn percent_encoded_template_braces_resolve() {
+        // Exported curls encode `{{ }}` as `%7B%7B %7D%7D` (e.g. Ory's login
+        // flow docs); those must still resolve against the environment.
+        let doc = doc_with("{{baseUrl}}/login?flow=%7B%7BflowId%7D%7D");
+        let out = resolve_doc(
+            &doc,
+            Some(&env_doc(
+                &[("baseUrl", "http://env.example"), ("flowId", "abc-123")],
+                &[],
+            )),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &FakeSecrets,
+        );
+        assert_eq!(out.request.url, "http://env.example/login?flow=abc-123");
+    }
+
+    #[test]
+    fn prev_refs_stay_literal_without_a_previous_response() {
+        let doc = doc_with("{{baseUrl}}/x?ts=#{body.at}");
+        let out = resolve_doc(
+            &doc,
+            Some(&env_doc(&[("baseUrl", "http://env.example")], &[])),
+            None,
+            None,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &FakeSecrets,
+        );
+        assert_eq!(out.request.url, "http://env.example/x?ts=#{body.at}");
     }
 }

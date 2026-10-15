@@ -228,6 +228,8 @@ fn looks_like_url(s: &str) -> bool {
     s.starts_with("http://")
         || s.starts_with("https://")
         || s.contains("://")
+        // Template URLs like `{{baseUrl}}/path` carry no scheme or dot.
+        || s.starts_with("{{")
         || (s.contains('.') && !s.contains(' ') && !s.starts_with('-'))
 }
 
@@ -374,7 +376,9 @@ fn split_url_params(url: Option<&str>) -> Option<Vec<KV>> {
                 let (k, v) = p.split_once('=').unwrap_or((p, ""));
                 KV {
                     name: k.to_string(),
-                    value: v.to_string(),
+                    // `%7B%7Bname%7D%7D` → `{{name}}`: exported curls encode
+                    // template braces; store the template, not the escape.
+                    value: crate::variables::decode_template_braces(v),
                     ..KV::default()
                 }
             })
@@ -457,6 +461,39 @@ mod tests {
         assert_eq!(params[0].name, "page");
         assert_eq!(params[0].value, "2");
         assert_eq!(doc.name, "GET api.example.com/users");
+    }
+
+    #[test]
+    fn template_url_with_encoded_query_param() {
+        // Ory-style flows ship curls with a template URL and the flow id
+        // percent-encoded (`?flow=%7B%7BFLOW%7D%7D`). Both must survive the
+        // import: the URL as a template, the param decoded to `{{FLOW}}`.
+        let doc = curl_to_request(
+            r#"curl -X POST '{{ORY_URL}}/self-service/login?flow=%7B%7BFLOW%7D%7D' -H 'Content-Type: application/json' --data-raw '{
+  "method": "password",
+  "identifier": "{{USERNAME}}",
+  "password": "{{PASSWORD}}"
+}'"#,
+            None,
+        )
+        .expect("ok");
+        assert_eq!(doc.request.url, "{{ORY_URL}}/self-service/login");
+        let params = doc.request.params.expect("params");
+        assert_eq!(params[0].name, "flow");
+        assert_eq!(params[0].value, "{{FLOW}}");
+        let body = doc.request.body.expect("body");
+        assert_eq!(body.body_type, BodyType::Json);
+        let content = body.content.expect("content");
+        assert!(content.contains(r#""identifier": "{{USERNAME}}""#), "{content}");
+        assert!(content.contains(r#""password": "{{PASSWORD}}""#), "{content}");
+    }
+
+    #[test]
+    fn other_percent_escapes_in_params_stay_encoded() {
+        let doc = curl_to_request("curl 'https://x.test/s?q=a%20b&f=%7B%7D'", None).expect("ok");
+        let params = doc.request.params.expect("params");
+        assert_eq!(params[0].value, "a%20b");
+        assert_eq!(params[1].value, "%7B%7D");
     }
 
     #[test]

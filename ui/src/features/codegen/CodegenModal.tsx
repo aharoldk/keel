@@ -21,11 +21,13 @@ export function CodegenModal() {
   const codegenFor = useKeel((s) => s.codegenFor);
   const closeCodegen = useKeel((s) => s.closeCodegen);
   const toast = useKeel((s) => s.toast);
+  const activeEnv = useKeel((s) => s.activeEnv);
 
   const [target, setTarget] = useState("curl");
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [resolveVars, setResolveVars] = useState(true);
 
   useEffect(() => {
     if (!codegenFor) return;
@@ -34,7 +36,7 @@ export function CodegenModal() {
     setCode(null);
     setCopied(false);
     api
-      .generateCode(codegenFor, target, null)
+      .generateCode(codegenFor, target, null, resolveVars, activeEnv)
       .then((snippet) => {
         if (cancelled) return;
         setCode(snippet);
@@ -49,7 +51,7 @@ export function CodegenModal() {
     return () => {
       cancelled = true;
     };
-  }, [codegenFor, target, toast]);
+  }, [codegenFor, target, toast, resolveVars, activeEnv]);
 
   const copy = async () => {
     if (code == null) return;
@@ -88,6 +90,22 @@ export function CodegenModal() {
             Copy
           </Button>
         </div>
+
+        <label className="flex items-center gap-2 text-xs text-fg-1 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={resolveVars}
+            onChange={(e) => setResolveVars(e.target.checked)}
+            className="h-3 w-3 accent-[var(--accent)] cursor-pointer"
+          />
+          Resolve variables from {activeEnv ?? "the environment"}
+        </label>
+        {resolveVars && (
+          <p className="text-xs text-warn">
+            Resolved values are inlined — including secrets. Do not commit or share
+            the snippet.
+          </p>
+        )}
 
         {busy ? (
           <div className="flex items-center justify-center py-10">

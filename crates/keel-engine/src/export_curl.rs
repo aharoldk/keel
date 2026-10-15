@@ -174,14 +174,22 @@ pub fn request_to_curl(doc: &RequestDoc) -> String {
     parts.join(" ")
 }
 
+/// Query encoding for exports: RFC 3986 unreserved characters (`-._~`) stay
+/// literal (a UUID like `d0e6e1ec-8483-…` must not degrade to `%2D`), as do
+/// the delimiters curl users expect to read raw (`/`, `:`, `?`, `=`, `&`).
+const QUERY_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~')
+    .remove(b'/')
+    .remove(b':')
+    .remove(b'?')
+    .remove(b'=')
+    .remove(b'&');
+
 fn encode(s: &str) -> String {
-    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC)
-        .to_string()
-        .replace("%2F", "/")
-        .replace("%3A", ":")
-        .replace("%3F", "?")
-        .replace("%3D", "=")
-        .replace("%26", "&")
+    percent_encoding::utf8_percent_encode(s, QUERY_SET).to_string()
 }
 
 #[cfg(test)]
@@ -190,6 +198,48 @@ mod tests {
 
     fn doc(yaml: &str) -> RequestDoc {
         yaml_to(yaml).expect("parse")
+    }
+
+    #[test]
+    fn unreserved_query_chars_stay_literal() {
+        // A resolved Ory flow id must export as-is, not `%2D`-mangled.
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: POST
+  url: "{{ORY_URL}}/self-service/login"
+  params:
+    - name: flow
+      value: "d0e6e1ec-8483-4eaf-86a9-5043b992617d"
+      enabled: true
+"#,
+        );
+        let curl = request_to_curl(&d);
+        assert!(
+            curl.contains("?flow=d0e6e1ec-8483-4eaf-86a9-5043b992617d"),
+            "{curl}"
+        );
+    }
+
+    #[test]
+    fn reserved_query_chars_are_still_encoded() {
+        let d = doc(
+            r#"
+schemaVersion: "1"
+name: t
+request:
+  method: GET
+  url: "https://x.test/s"
+  params:
+    - name: q
+      value: "a b+c#d"
+      enabled: true
+"#,
+        );
+        let curl = request_to_curl(&d);
+        assert!(curl.contains("?q=a%20b%2Bc%23d"), "{curl}");
     }
 
     #[test]

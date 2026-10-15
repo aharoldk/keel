@@ -155,8 +155,13 @@ export const api = {
   importPostman: (sourcePath: string, folder: string) =>
     invoke<ImportResult>("import_postman", { sourcePath, folder }),
   exportOpenapi: (folder: string) => invoke<string>("export_openapi", { folder }),
-  generateCode: (path: string, target: string, doc?: RequestDoc | null) =>
-    invoke<string>("generate_code", { path, target, doc }),
+  generateCode: (
+    path: string,
+    target: string,
+    doc?: RequestDoc | null,
+    resolve?: boolean,
+    envName?: string | null,
+  ) => invoke<string>("generate_code", { path, target, doc, resolve, envName }),
 
   // app
   settingsGet: () => invoke<AppSettings>("settings_get"),

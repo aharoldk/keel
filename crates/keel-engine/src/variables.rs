@@ -360,6 +360,17 @@ fn variable_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").expect("static regex"))
 }
 
+/// Decodes percent-encoded template braces (`%7B%7Bname%7D%7D` → `{{name}}`)
+/// so variables inside URL-encoded curls (e.g. `?flow=%7B%7BFLOW%7D%7D`)
+/// still resolve. Only complete `{{name}}` tokens are touched — every other
+/// percent-escape in the string stays intact.
+pub(crate) fn decode_template_braces(s: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)%7B%7B([^{}%]+?)%7D%7D").expect("static regex"))
+        .replace_all(s, "{{$1}}")
+        .into_owned()
+}
+
 fn builtin_value(name: &str) -> Option<String> {
     match name {
         "$timestamp" => Some(

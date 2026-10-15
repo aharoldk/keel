@@ -535,12 +535,47 @@ pub async fn generate_code(
     path: String,
     doc: Option<RequestDoc>,
     target: String,
+    resolve: Option<bool>,
+    env_name: Option<String>,
     ctx: Ctx<'_>,
 ) -> Result<String, String> {
     with_workspace(&ctx, |root| {
         let d = match doc {
             Some(d) => d,
             None => workspace::read_request(root, &path)?,
+        };
+        let d = if resolve.unwrap_or(false) {
+            let (env_doc, env_label) = match &env_name {
+                Some(file_name) => {
+                    let ed = workspace::env_read(root, file_name)?;
+                    let label = ed.name.clone();
+                    (Some(ed), Some(label))
+                }
+                None => (None, None),
+            };
+            let collection = workspace::load_collection(root).ok();
+            let workspace_doc = workspace::load_workspace_doc(root);
+            let chain = crate::inherit::build(root, &path);
+            let merged = crate::runner::merge_send_doc(&d, &chain);
+            let env_values = match &env_name {
+                Some(file_name) => workspace::env_values_read(root, file_name),
+                None => BTreeMap::new(),
+            };
+            let secret_source = KeyringSecrets {
+                workspace_root: root.to_string_lossy().into_owned(),
+                env_name: env_label.unwrap_or_default(),
+            };
+            crate::engine::send::resolve_doc(
+                &merged,
+                env_doc.as_ref(),
+                collection.as_ref(),
+                Some(&workspace_doc),
+                &chain.merged_variables(),
+                &env_values,
+                &secret_source,
+            )
+        } else {
+            d
         };
         crate::codegen::generate_code(&d, &target)
     })

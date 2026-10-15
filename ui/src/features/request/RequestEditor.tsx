@@ -6,10 +6,21 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Braces, ChevronDown, ChevronRight, ClipboardCopy, FolderOpen, Play, Save } from "lucide-react";
+import {
+  Braces,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCopy,
+  FolderOpen,
+  PanelLeftOpen,
+  Play,
+  Plus,
+  Save,
+  X,
+} from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Check, Plus, X } from "lucide-react";
 import { useKeel } from "@/state/store";
 import {
   Button,
@@ -371,12 +382,15 @@ export default function RequestEditor() {
                     variables={variables}
                     sidePanel={
                       protocol === "graphql" && doc.request.body?.type === "graphql" ? (
-                        <QueryBuilder
-                          doc={doc}
-                          setDoc={setDoc}
-                          toast={toast}
-                          variables={variables}
-                        />
+                        ({ onMinimize }) => (
+                          <QueryBuilder
+                            doc={doc}
+                            setDoc={setDoc}
+                            toast={toast}
+                            variables={variables}
+                            onMinimize={onMinimize}
+                          />
+                        )
                       ) : undefined
                     }
                   />
@@ -427,12 +441,36 @@ function BodyTab({
   toast: (msg: string, kind?: "error" | "success" | "info") => void;
   variables: VariableSuggestion[];
   /** Extra panel rendered beside the body editors (e.g. the query builder). */
-  sidePanel?: ReactNode;
+  sidePanel?: ReactNode | ((props: { onMinimize: () => void }) => ReactNode);
 }) {
   const body: Body = doc.request.body ?? { type: "none" };
 
   const setBody = (b: Body) =>
     setDoc({ ...doc, request: { ...doc.request, body: b } });
+
+  const [builderOpen, setBuilderOpen] = useState(true);
+  const [builderWidth, setBuilderWidth] = useState(320);
+
+  const startBuilderDrag = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = builderWidth;
+    const onMove = (ev: MouseEvent) => {
+      const deltaX = ev.clientX - startX;
+      setBuilderWidth(Math.max(220, Math.min(600, startW + deltaX)));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.getSelection()?.removeAllRanges();
+  };
 
   // Share of the GraphQL body height given to the variables editor; the
   // query editor fills the rest. Dragging the divider adjusts it, and the
@@ -539,6 +577,46 @@ function BodyTab({
       </div>
 
       <div className="flex-1 min-h-0 flex">
+        {/* Left side panel — e.g. the GraphQL query builder */}
+        {sidePanel && builderOpen && (
+          <div
+            style={{ width: builderWidth }}
+            className="shrink-0 border-r border-line-0 min-h-0 overflow-y-auto flex flex-col"
+          >
+            {typeof sidePanel === "function"
+              ? sidePanel({ onMinimize: () => setBuilderOpen(false) })
+              : sidePanel}
+          </div>
+        )}
+        {sidePanel && builderOpen && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            title="Drag to resize query builder"
+            onMouseDown={startBuilderDrag}
+            className="w-1.5 shrink-0 cursor-col-resize bg-line-0 hover:bg-line-focus transition-colors"
+          />
+        )}
+        {sidePanel && !builderOpen && (
+          <div className="w-8 shrink-0 border-r border-line-0 bg-bg-1 flex flex-col items-center py-2 select-none">
+            <button
+              type="button"
+              title="Expand query builder"
+              aria-label="Expand query builder"
+              onClick={() => setBuilderOpen(true)}
+              className="h-7 w-7 rounded flex items-center justify-center text-fg-2 hover:text-fg-0 hover:bg-bg-hover transition-colors"
+            >
+              <PanelLeftOpen size={14} />
+            </button>
+            <span
+              className="text-[10px] text-fg-2 font-medium mt-2 select-none pointer-events-none"
+              style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+            >
+              Query builder
+            </span>
+          </div>
+        )}
+
         <div className="flex-1 min-w-0 flex flex-col">
           {(body.type === "json" || body.type === "text" || body.type === "xml") && (
             <div className="flex-1 min-h-0 flex flex-col bg-bg-1">
@@ -673,13 +751,6 @@ function BodyTab({
             </div>
           )}
         </div>
-
-        {/* Side panel — e.g. the GraphQL query builder */}
-        {sidePanel && (
-          <div className="w-80 shrink-0 border-l border-line-0 min-h-0 overflow-y-auto">
-            {sidePanel}
-          </div>
-        )}
       </div>
     </div>
   );

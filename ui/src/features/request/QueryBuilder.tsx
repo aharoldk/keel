@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Plus, X } from "lucide-react";
+import { ChevronRight, PanelLeftClose, Plus, X } from "lucide-react";
 import { api } from "@/api/client";
 import type { GqlSchema, KV, RequestDoc } from "@/api/types";
 import { Button, TextInput } from "@/components/ui";
@@ -13,6 +13,7 @@ interface Props {
   toast: (msg: string, kind?: "error" | "success" | "info") => void;
   /** Known `{{variables}}` — used to resolve the endpoint URL for introspection. */
   variables?: VariableSuggestion[];
+  onMinimize?: () => void;
 }
 
 /** Substitutes `{{name}}` tags a suggestion knows the value of; unknown
@@ -24,7 +25,13 @@ function resolveTemplates(text: string, variables: VariableSuggestion[]): string
   });
 }
 
-export default function QueryBuilder({ doc, setDoc, toast, variables = [] }: Props) {
+export default function QueryBuilder({
+  doc,
+  setDoc,
+  toast,
+  variables = [],
+  onMinimize,
+}: Props) {
   const [schema, setSchema] = useState<GqlSchema | null>(null);
   const [loading, setLoading] = useState(false);
   const [operation, setOperation] = useState<"query" | "mutation" | "subscription">(
@@ -85,9 +92,22 @@ export default function QueryBuilder({ doc, setDoc, toast, variables = [] }: Pro
   };
 
   return (
-    <div className="flex flex-col gap-2 p-2 min-h-0">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-2 p-2 min-h-0 h-full">
+      <div className="flex items-center justify-between gap-1 pb-1 border-b border-line-0 shrink-0">
         <span className="text-xs font-semibold text-fg-1">Query builder</span>
+        {onMinimize && (
+          <button
+            type="button"
+            title="Minimize query builder"
+            aria-label="Minimize query builder"
+            onClick={onMinimize}
+            className="h-6 w-6 rounded flex items-center justify-center text-fg-2 hover:text-fg-0 hover:bg-bg-hover transition-colors"
+          >
+            <PanelLeftClose size={13} />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <select
           className="h-7 text-xs rounded border border-line-0 bg-bg-1 px-1"
           value={operation}

@@ -33,6 +33,10 @@
   --method-head: #a5b4fc;
   --method-options: #d4d4d8;
   --method-trace: #fda4af;
+  --method-graphql: #f472b6;
+  --method-grpc: #818cf8;
+  --method-ws: #fbbf24;
+  --method-websocket: #fbbf24;
   --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   --sans: ui-sans-serif, system-ui, "Inter", "Segoe UI", Roboto, sans-serif;
@@ -64,6 +68,10 @@
   --method-head: #4f46e5;
   --method-options: #475569;
   --method-trace: #be123c;
+  --method-graphql: #db2777;
+  --method-grpc: #4338ca;
+  --method-ws: #b45309;
+  --method-websocket: #b45309;
 }
 
 @theme inline {

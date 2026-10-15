@@ -32,8 +32,21 @@ export function statusClass(status: number | null): string {
   return "text-danger";
 }
 
-export function methodVar(method: HttpMethod): string {
-  return `var(--method-${method.toLowerCase()})`;
+export function methodVar(method: string): string {
+  const m = method.toLowerCase();
+  if (m === "websocket") return "var(--method-ws)";
+  return `var(--method-${m})`;
+}
+
+export function requestMethodLabel(
+  method?: HttpMethod | string,
+  protocol?: string,
+): string {
+  const p = protocol?.toLowerCase();
+  if (p === "graphql") return "graphql";
+  if (p === "grpc") return "grpc";
+  if (p === "websocket" || p === "ws") return "ws";
+  return method ?? "GET";
 }
 
 /** Simple subsequence fuzzy match. Returns a score, or -1 when no match. */

@@ -162,6 +162,7 @@ export interface TreeNode {
   name: string;
   kind: TreeNodeKind;
   method?: HttpMethod;
+  protocol?: RequestProtocol;
   url?: string;
   children?: TreeNode[];
   meta?: FolderMeta;

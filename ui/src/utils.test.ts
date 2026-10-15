@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTime, fuzzyScore, isEditableTarget, methodVar, statusClass } from "./utils";
+import { formatTime, fuzzyScore, isEditableTarget, methodVar, requestMethodLabel, statusClass } from "./utils";
 
 describe("fuzzyScore", () => {
   it("returns 0 for empty query", () => {
@@ -32,6 +32,27 @@ describe("statusClass", () => {
 describe("methodVar", () => {
   it("returns css variable per method", () => {
     expect(methodVar("GET")).toBe("var(--method-get)");
+    expect(methodVar("POST")).toBe("var(--method-post)");
+    expect(methodVar("graphql")).toBe("var(--method-graphql)");
+    expect(methodVar("grpc")).toBe("var(--method-grpc)");
+    expect(methodVar("ws")).toBe("var(--method-ws)");
+    expect(methodVar("websocket")).toBe("var(--method-ws)");
+  });
+});
+
+describe("requestMethodLabel", () => {
+  it("returns protocol label for graphql, grpc, and websocket", () => {
+    expect(requestMethodLabel("POST", "graphql")).toBe("graphql");
+    expect(requestMethodLabel("GET", "grpc")).toBe("grpc");
+    expect(requestMethodLabel("GET", "websocket")).toBe("ws");
+    expect(requestMethodLabel("GET", "ws")).toBe("ws");
+  });
+
+  it("returns http method for http requests or unspecified protocol", () => {
+    expect(requestMethodLabel("POST", "http")).toBe("POST");
+    expect(requestMethodLabel("GET", undefined)).toBe("GET");
+    expect(requestMethodLabel(undefined, undefined)).toBe("GET");
+    expect(requestMethodLabel("DELETE", undefined)).toBe("DELETE");
   });
 });
 

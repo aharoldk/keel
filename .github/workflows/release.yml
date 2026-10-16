@@ -122,14 +122,15 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.release.outputs.tag }}"
-          prerelease=()
+          gh_args=(--draft)
           if [[ "$tag" == *-rc.* ]]; then
-            prerelease=(--prerelease)
+            gh_args+=(--prerelease)
           fi
+          gh_args+=(--title "Keel $tag")
           if [[ -n "$DESCRIPTION" ]]; then
-            notes=(--notes "$DESCRIPTION")
+            gh_args+=(--notes "$DESCRIPTION")
           else
-            notes=(--generate-notes)
+            gh_args+=(--generate-notes)
           fi
           # GITHUB_ENV is per job, so every matrix leg must resolve the tag
           # and create the draft itself. Concurrent creates race; retry.
@@ -137,11 +138,7 @@ jobs:
             if gh release view "$tag" >/dev/null 2>&1; then
               break
             fi
-            if gh release create "$tag" \
-              --draft \
-              "${prerelease[@]}" \
-              --title "Keel $tag" \
-              "${notes[@]}"; then
+            if gh release create "$tag" "${gh_args[@]}"; then
               break
             fi
             sleep 10
